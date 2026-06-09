@@ -1,0 +1,19 @@
+{
+    "name": "CUDA-Transformer",
+    "image": "nvidia/cuda:12.8.0-devel-ubuntu24.04",
+    "features": {
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.12"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-vscode.cpptools",
+                "nvidia.nsight-vscode-edition"
+            ]
+        }
+    },
+    "postCreateCommand": "pip install uv && uv sync"
+}
