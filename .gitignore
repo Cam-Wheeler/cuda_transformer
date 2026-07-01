@@ -17,9 +17,10 @@
   checkpoints/
 
   # Data files - downloaded at runtime
-  *.txt
-  wizard_of_oz.txt
-  vocab.txt
+  data/cache/
+
+  # Environment variables
+  .env
 
   # OS
   .DS_Store
