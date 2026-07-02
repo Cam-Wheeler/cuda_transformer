@@ -25,3 +25,17 @@ Model Architecture:
 
 This model is based on the QWEN-3 paper: https://arxiv.org/abs/2505.09388
 """
+
+import torch
+from torch import nn
+
+# Local imports
+from config import QWEN3Config
+
+
+class QWEN3(nn.Module):
+    
+    def __init__(self, config: QWEN3Config):
+        super().__init__()
+        self.config = config
+        pass
