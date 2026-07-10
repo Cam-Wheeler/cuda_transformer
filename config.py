@@ -16,3 +16,11 @@ class QWEN3Config(BaseModel):
     hidden_dim: int = 1024
     rms_norms_eps: float = 1e-06
     rope_theta: float = 1000000
+
+class TrainingConfig(BaseModel):
+    """
+    Configuration for training.
+    """
+    pass
+
+

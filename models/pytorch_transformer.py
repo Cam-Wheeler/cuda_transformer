@@ -41,7 +41,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-
 # Local imports
 from config import QWEN3Config
 
@@ -66,24 +65,55 @@ class QWEN3Block(nn.Module):
     """ 
     A single QWEN-3 decoder block.
     This block consists of:
-    - RMSNorm
-    - GQA self-attention (RoPE included)
-    - RMSNorm
-    - MLP (SWIGLU)
+
+    - RMSNorm 1
+    - Masked GQA Attention (ROPE and QK-Norm included)
+    - Res connection 1
+    - RMSNorm 2
+    - FFN
+    - Res connection 2
     """
+    
     pass
 
 class QWEN3RMSNorm(nn.Module):
-    """ The RMSNorm for the model."""
-    pass
+    """
+    Root Mean Square Layer Normalisation (RMSNorm)
+
+    Arguments:
+    - hidden_dim: The dimension of the hidden layer.
+    - eps: The epsilon value for the normalisation.
+    - bias: Whether to use a bias term.
+    """
+    
+    def __init__(self, hidden_dim: int, eps: float = 1e-06, bias: bool = False):
+        super().__init__()
+        pass 
 
 class QWEN3GQAAttention(nn.Module):
-    """ The GQA self-attention for the model."""
+    """
+    Grouped Query Attention (GQA)    
+    """
     pass
 
-class QWEN3MLP(nn.Module):
-    """ The MLP layer for the model. This uses SWIGLU."""
-    pass
+class QWEN3FFN(nn.Module):
+    """
+    Feed-Forward Network (FFN) using GLU with SiLU activation.
+
+    Arguments:
+    - embedding_dim: The dimension of the embedding (output of the transformer block)
+    - hidden_dim: The dimension of the hidden layer.
+    - bias: Whether to use a bias term.
+    """
+    
+    def __init__(self, embedding_dim: int, hidden_dim: int, bias: bool = False):
+        super().__init__()
+        self.w1 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
+        self.w2 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
+        self.w3 = nn.Linear(hidden_dim, embedding_dim, bias=bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w3(F.silu(self.w1(x)) * self.w2(x))
 
 class QWEN3LMHead(nn.Module):
     """ The LM head for the model."""
