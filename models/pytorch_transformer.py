@@ -35,11 +35,14 @@ We make use of many more papers as well:
 I also used several other resources to help me understand and build!
 
 - https://cameronrwolfe.substack.com/p/decoder-only-transformers-the-workhorse
+- https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py
+- https://github.com/rasbt/LLMs-from-scratch/blob/main/ch05/11_qwen3/standalone-qwen3.ipynb
 """
 
 import torch
 from torch import nn
 from torch.nn import functional as F
+from typing import Tuple
 
 # Local imports
 from config import QWEN3Config
@@ -59,7 +62,42 @@ class QWEN3Embedding(nn.Module):
 
 class QWEN3RoPE(nn.Module):
     """ RoPE embedding for the model."""
-    pass
+    
+    def __init__(self, config: QWEN3Config):
+        super().__init__()
+
+    @staticmethod
+    def compute_rope_parameters(head_dim: int, theta_base: float = 1_000_000.0, max_context_len: int = 40_960, dtype: torch.dtype = torch.float32) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Precomputes the Cos and Sin values for RoPE.
+
+        Called once at model initialisation then stored for reuse!
+
+        Arguments:
+        """
+        assert head_dim % 2 == 0, "Head dimension must be even for RoPE so we can compute pairs."
+
+        # Compute the thetas for each pair! theta = base ** (-2i / head_dim)
+        # Again we do some reciprocal trickery to get the inverse frequencies!
+        inverse_freqs = 1.0 / (theta_base ** (torch.arange(0, head_dim, 2, dtype=torch.int64).to(dtype) / head_dim)).unsqueeze(0) # [1, head_dim // 2]
+        absolute_pos = torch.arange(max_context_len, dtype=dtype).unsqueeze(1) # [max_context_len, 1]
+        angles = absolute_pos * inverse_freqs # [max_context_len, head_dim // 2]
+
+        # Because we are using rotate half trick.
+        angles = torch.cat([angles, angles], dim=1) # [max_context_len, head_dim]
+
+        # Now we compute the cos and sin values for each pair!
+        cos = torch.cos(angles)
+        sin = torch.sin(angles)
+
+        return cos, sin
+
+        
+    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, ) -> torch.Tensor:
+        """
+        Actually spin the vectors!
+        """
+        pass
 
 class QWEN3Block(nn.Module):
     """ 
