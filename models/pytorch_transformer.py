@@ -73,22 +73,34 @@ class QWEN3Block(nn.Module):
     - FFN
     - Res connection 2
     """
-    
     pass
 
 class QWEN3RMSNorm(nn.Module):
     """
-    Root Mean Square Layer Normalisation (RMSNorm)
+    Root Mean Square Normalisation (RMSNorm)
 
     Arguments:
     - hidden_dim: The dimension of the hidden layer.
     - eps: The epsilon value for the normalisation.
     - bias: Whether to use a bias term.
+    - fp32_stability: Whether to use fp32 stability (hf code uses this)
+        https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py
     """
     
-    def __init__(self, hidden_dim: int, eps: float = 1e-06, bias: bool = False):
+    def __init__(self, hidden_dim: int, eps: float = 1e-06, fp32_stability: bool = True):
         super().__init__()
-        pass 
+        self.scale = nn.Parameter(torch.ones(hidden_dim)) # g in the paper.
+        self.epsilon = eps
+        self.fp32_stability = fp32_stability
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        original_type = x.dtype
+        if self.fp32_stability: # HF always cast for stability.
+            x = x.to(torch.float32)
+        mean_squared = x.pow(2).mean(-1, keepdim=True) # We grab the means across the rows (tokens).
+        sqrt_norm = x  * torch.rsqrt(mean_squared + self.epsilon) # Now we take the rsqrt (not sqrt) and add epsilon.
+        scaled = sqrt_norm * self.scale # Now we scale the input.
+        return scaled.type(original_type)
 
 class QWEN3GQAAttention(nn.Module):
     """
