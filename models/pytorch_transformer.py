@@ -74,6 +74,14 @@ class QWEN3RoPE(nn.Module):
         Called once at model initialisation then stored for reuse!
 
         Arguments:
+        - head_dim: The dimension of the head.
+        - theta_base: The base of the theta value.
+        - max_context_len: The maximum context length.
+        - dtype: The dtype of the tensors.
+
+        Returns:
+        - cos: The cosine values for the RoPE.
+        - sin: The sine values for the RoPE.
         """
         assert head_dim % 2 == 0, "Head dimension must be even for RoPE so we can compute pairs."
 
