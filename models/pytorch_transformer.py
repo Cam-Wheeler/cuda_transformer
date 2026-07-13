@@ -101,12 +101,37 @@ class QWEN3RoPE(nn.Module):
         return cos, sin
 
         
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         """
         Actually spin the vectors!
-        """
-        pass
 
+        Arguments:
+        - x: The input tensor. [batch_size, n_heads, seq_len, head_dim]
+        - cos: The cosine values for the RoPE.
+        - sin: The sine values for the RoPE.
+
+        Returns:
+        - x: The output tensor. [batch_size, heads, seq_len, head_dim]
+        """
+        batch_size, n_heads, seq_len, head_dim = x.shape
+        assert head_dim % 2 == 0, "Head dimension must be even for RoPE so we can spin pairs."
+
+        # Split the head dim into two halves.
+        x_1 = x[..., :head_dim // 2]
+        x_2 = x[..., head_dim // 2:]
+
+        # Original cos and sin shapes are [max_context_len, head_dim]
+        # We need to reshape them to [1, 1, max_context_len, head_dim]
+        cos = cos[:seq_len].unsqueeze(0).unsqueeze(0)
+        sin = sin[:seq_len].unsqueeze(0).unsqueeze(0)
+
+        #  RoPE with half trick! 
+        flipped = torch.cat((-x_2, x_1), dim=-1)
+        rotated = (x * cos) + (flipped * sin)
+
+        return rotated
+
+        
 class QWEN3Block(nn.Module):
     """ 
     A single QWEN-3 decoder block.
