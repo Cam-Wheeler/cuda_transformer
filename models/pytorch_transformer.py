@@ -177,7 +177,49 @@ class QWEN3GQAAttention(nn.Module):
     """
     Grouped Query Attention (GQA)    
     """
-    pass
+    def __init__(self, input_dim: int, hidden_dim:int, num_q_heads: int, num_kv_heads: int, head_dim: int, dtype: torch.dtype = torch.float32):
+        super().__init__()
+        # Setup dimensions.
+        self.input_dim = input_dim # embedding dimension.
+        self.hidden_dim = hidden_dim # hidden dimension.
+        self.num_q_heads = num_q_heads # number of query heads.
+        self.head_dim = head_dim # dimension of each Q head. (This should be the hidden dimension divided by Q heads).
+        self.num_kv_heads = num_kv_heads # number of key/value heads.
+        self.kv_dim = head_dim * num_kv_heads # dimension of all KV heads.
+        self.dtype = dtype # dtype of the tensors.
+
+        # Check dimensions.
+        assert self.head_dim * self.num_q_heads == self.hidden_dim, "Head dimension * number of Q heads must equal hidden dimension."
+        assert self.num_q_heads % self.num_kv_heads == 0, "num_q_heads must be divisible by num_kv_heads for GQA grouping."
+
+        # Weights for projections.
+        self.q_proj = nn.Linear(self.input_dim, self.hidden_dim, bias=False, dtype=self.dtype)
+        self.k_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype)
+        self.v_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype)
+
+        # QK-Norm
+        self.q_norm = QWEN3RMSNorm(self.head_dim, dtype=self.dtype)
+        self.k_norm = QWEN3RMSNorm(self.head_dim, dtype=self.dtype)
+
+        # RoPE
+        self.rope = QWEN3RoPE() # No parameters needed! 
+
+        # Output projection
+        self.out_proj = nn.Linear(self.hidden_dim, self.input_dim, bias=False, dtype=self.dtype) # [hidden_dim, input_dim]
+
+    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the GQA attention.
+
+        Arguments:
+        - x: The input tensor. 
+        - cos: The cosine values for the RoPE.
+        - sin: The sine values for the RoPE.
+
+        Returns:
+        - x: The output tensor.
+        """
+        pass
 
 class QWEN3FFN(nn.Module):
     """
