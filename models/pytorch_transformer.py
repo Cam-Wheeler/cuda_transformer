@@ -49,25 +49,33 @@ from config import QWEN3Config
 
 
 class QWEN3(nn.Module):
-    """ A QWEN-3 style transformer model."""
+    """A QWEN-3 style transformer model."""
 
     def __init__(self, config: QWEN3Config):
         super().__init__()
         self.config = config
         pass
 
+
 class QWEN3Embedding(nn.Module):
-    """ The embedding layer for the model."""
+    """The embedding layer for the model."""
+
     pass
 
+
 class QWEN3RoPE(nn.Module):
-    """ RoPE embedding for the model."""
-    
+    """RoPE embedding for the model."""
+
     def __init__(self):
         super().__init__()
 
     @staticmethod
-    def compute_rope_parameters(head_dim: int, theta_base: float = 1_000_000.0, max_context_len: int = 40_960, dtype: torch.dtype = torch.float32) -> Tuple[torch.Tensor, torch.Tensor]:
+    def compute_rope_parameters(
+        head_dim: int,
+        theta_base: float = 1_000_000.0,
+        max_context_len: int = 40_960,
+        dtype: torch.dtype = torch.float32,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Precomputes the Cos and Sin values for RoPE.
 
@@ -83,16 +91,23 @@ class QWEN3RoPE(nn.Module):
         - cos: The cosine values for the RoPE.
         - sin: The sine values for the RoPE.
         """
-        assert head_dim % 2 == 0, "Head dimension must be even for RoPE so we can compute pairs."
+        assert head_dim % 2 == 0, (
+            "Head dimension must be even for RoPE so we can compute pairs."
+        )
 
         # Compute the thetas for each pair! theta = base ** (-2i / head_dim)
         # Again we do some reciprocal trickery to get the inverse frequencies!
-        inverse_freqs = 1.0 / (theta_base ** (torch.arange(0, head_dim, 2, dtype=torch.int64).to(dtype) / head_dim)).unsqueeze(0) # [1, head_dim // 2]
-        absolute_pos = torch.arange(max_context_len, dtype=dtype).unsqueeze(1) # [max_context_len, 1]
-        angles = absolute_pos * inverse_freqs # [max_context_len, head_dim // 2]
+        inverse_freqs = 1.0 / (
+            theta_base
+            ** (torch.arange(0, head_dim, 2, dtype=torch.int64).to(dtype) / head_dim)
+        ).unsqueeze(0)  # [1, head_dim // 2]
+        absolute_pos = torch.arange(max_context_len, dtype=dtype).unsqueeze(
+            1
+        )  # [max_context_len, 1]
+        angles = absolute_pos * inverse_freqs  # [max_context_len, head_dim // 2]
 
         # Because we are using rotate half trick.
-        angles = torch.cat([angles, angles], dim=1) # [max_context_len, head_dim]
+        angles = torch.cat([angles, angles], dim=1)  # [max_context_len, head_dim]
 
         # Now we compute the cos and sin values for each pair!
         cos = torch.cos(angles)
@@ -100,8 +115,9 @@ class QWEN3RoPE(nn.Module):
 
         return cos, sin
 
-        
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+    ) -> torch.Tensor:
         """
         Actually spin the vectors!
 
@@ -114,26 +130,28 @@ class QWEN3RoPE(nn.Module):
         - x: The output tensor. [batch_size, heads, seq_len, head_dim]
         """
         batch_size, n_heads, seq_len, head_dim = x.shape
-        assert head_dim % 2 == 0, "Head dimension must be even for RoPE so we can spin pairs."
+        assert head_dim % 2 == 0, (
+            "Head dimension must be even for RoPE so we can spin pairs."
+        )
 
         # Split the head dim into two halves.
-        x_1 = x[..., :head_dim // 2]
-        x_2 = x[..., head_dim // 2:]
+        x_1 = x[..., : head_dim // 2]
+        x_2 = x[..., head_dim // 2 :]
 
         # Original cos and sin shapes are [max_context_len, head_dim]
         # We need to reshape them to [1, 1, max_context_len, head_dim]
         cos = cos[:seq_len].unsqueeze(0).unsqueeze(0)
         sin = sin[:seq_len].unsqueeze(0).unsqueeze(0)
 
-        #  RoPE with half trick! 
+        #  RoPE with half trick!
         flipped = torch.cat((-x_2, x_1), dim=-1)
         rotated = (x * cos) + (flipped * sin)
 
         return rotated
 
-        
+
 class QWEN3Block(nn.Module):
-    """ 
+    """
     A single QWEN-3 decoder block.
     This block consists of:
 
@@ -149,19 +167,21 @@ class QWEN3Block(nn.Module):
         super().__init__()
         self.norm_1 = QWEN3RMSNorm(config.embedding_dim)
         self.group_query_attn = QWEN3GQAAttention(
-            input_dim=config.embedding_dim, 
+            input_dim=config.embedding_dim,
             num_q_heads=config.num_q_heads,
             num_kv_heads=config.num_kv_heads,
-            head_dim=config.head_dim
+            head_dim=config.head_dim,
         )
         self.norm_2 = QWEN3RMSNorm(config.embedding_dim)
         self.ffn = QWEN3FFN(
-            embedding_dim=config.embedding_dim, 
+            embedding_dim=config.embedding_dim,
             hidden_dim=config.fnn_hidden_dim,
-            bias=False
+            bias=False,
         )
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+    ) -> torch.Tensor:
         """
         Forward pass for the QWEN-3 block.
 
@@ -174,14 +194,14 @@ class QWEN3Block(nn.Module):
         Returns:
         - x: The output tensor.
         """
-        residual = x # [batch, seq_len, embed_dim]
+        residual = x  # [batch, seq_len, embed_dim]
         x = self.norm_1(x)
-        x = self.group_query_attn(x, mask, cos, sin) # [batch_size, seq_len, embed_dim]
-        x = x + residual # Elementwise addition.
+        x = self.group_query_attn(x, mask, cos, sin)  # [batch_size, seq_len, embed_dim]
+        x = x + residual  # Elementwise addition.
 
         residual = x
         x = self.norm_2(x)
-        x = self.ffn(x) # SwiGLU
+        x = self.ffn(x)  # SwiGLU
         x = x + residual
 
         return x
@@ -198,20 +218,26 @@ class QWEN3RMSNorm(nn.Module):
     - fp32_stability: Whether to use fp32 stability (hf code uses this)
         https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py
     """
-    
-    def __init__(self, hidden_dim: int, eps: float = 1e-06, fp32_stability: bool = True):
+
+    def __init__(
+        self, hidden_dim: int, eps: float = 1e-06, fp32_stability: bool = True
+    ):
         super().__init__()
-        self.scale = nn.Parameter(torch.ones(hidden_dim)) # g in the paper.
+        self.scale = nn.Parameter(torch.ones(hidden_dim))  # g in the paper.
         self.epsilon = eps
         self.fp32_stability = fp32_stability
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         original_type = x.dtype
-        if self.fp32_stability: # HF always cast for stability.
+        if self.fp32_stability:  # HF always cast for stability.
             x = x.to(torch.float32)
-        mean_squared = x.pow(2).mean(-1, keepdim=True) # We grab the means across the rows (tokens).
-        sqrt_norm = x  * torch.rsqrt(mean_squared + self.epsilon) # Now we take the rsqrt (not sqrt) and add epsilon.
-        scaled = sqrt_norm * self.scale # Now we scale the input.
+        mean_squared = x.pow(2).mean(
+            -1, keepdim=True
+        )  # We grab the means across the rows (tokens).
+        sqrt_norm = x * torch.rsqrt(
+            mean_squared + self.epsilon
+        )  # Now we take the rsqrt (not sqrt) and add epsilon.
+        scaled = sqrt_norm * self.scale  # Now we scale the input.
         return scaled.type(original_type)
 
 
@@ -229,44 +255,74 @@ class QWEN3GQAAttention(nn.Module):
     Returns:
     - x: The output tensor.
     """
-    def __init__(self, input_dim: int, num_q_heads: int, num_kv_heads: int, head_dim: int, dtype: torch.dtype = torch.float32):
+
+    def __init__(
+        self,
+        input_dim: int,
+        num_q_heads: int,
+        num_kv_heads: int,
+        head_dim: int,
+        dtype: torch.dtype = torch.float32,
+    ):
         super().__init__()
         # Setup dimensions.
-        self.input_dim = input_dim # embedding dimension (the size of the token vectors).
-        self.head_dim = head_dim # dimension of each Q head.
-        self.num_q_heads = num_q_heads # number of query heads.
-        self.q_dim = self.num_q_heads * self.head_dim # dimension of all Q heads.
-        self.num_kv_heads = num_kv_heads # number of key/value heads.
-        self.kv_dim = self.num_kv_heads * self.head_dim # dimension of all KV heads.
-        self.kv_group_size = self.num_q_heads // self.num_kv_heads # number of Q heads per KV group.
-        self.dtype = dtype # dtype of the tensors.
+        self.input_dim = (
+            input_dim  # embedding dimension (the size of the token vectors).
+        )
+        self.head_dim = head_dim  # dimension of each Q head.
+        self.num_q_heads = num_q_heads  # number of query heads.
+        self.q_dim = self.num_q_heads * self.head_dim  # dimension of all Q heads.
+        self.num_kv_heads = num_kv_heads  # number of key/value heads.
+        self.kv_dim = self.num_kv_heads * self.head_dim  # dimension of all KV heads.
+        self.kv_group_size = (
+            self.num_q_heads // self.num_kv_heads
+        )  # number of Q heads per KV group.
+        self.dtype = dtype  # dtype of the tensors.
 
         # Check dimensions. (this is slightly overkill but I want to ensure I am correct).
-        assert self.num_q_heads > self.num_kv_heads, "Number of Q heads must be greater than number of KV heads for GQA."
-        assert self.q_dim > self.kv_dim, "Q dimension must be larger than KV dimension, this is the whole point of GQA."
-        assert self.num_q_heads % self.num_kv_heads == 0, "num_q_heads must be divisible by num_kv_heads for GQA grouping."
+        assert self.num_q_heads > self.num_kv_heads, (
+            "Number of Q heads must be greater than number of KV heads for GQA."
+        )
+        assert self.q_dim > self.kv_dim, (
+            "Q dimension must be larger than KV dimension, this is the whole point of GQA."
+        )
+        assert self.num_q_heads % self.num_kv_heads == 0, (
+            "num_q_heads must be divisible by num_kv_heads for GQA grouping."
+        )
 
         # Weights for projections.
-        self.q_proj = nn.Linear(self.input_dim, self.q_dim, bias=False, dtype=self.dtype) # Project into q space. [input_dim, q_dim]
-        self.k_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype)  # Project into kv space. [input_dim, kv_dim]
-        self.v_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype) # ^^^^^^^
+        self.q_proj = nn.Linear(
+            self.input_dim, self.q_dim, bias=False, dtype=self.dtype
+        )  # Project into q space. [input_dim, q_dim]
+        self.k_proj = nn.Linear(
+            self.input_dim, self.kv_dim, bias=False, dtype=self.dtype
+        )  # Project into kv space. [input_dim, kv_dim]
+        self.v_proj = nn.Linear(
+            self.input_dim, self.kv_dim, bias=False, dtype=self.dtype
+        )  # ^^^^^^^
 
         # QK-Norm
-        self.q_norm = QWEN3RMSNorm(self.head_dim) # We have a parameter for the head dimension.
-        self.k_norm = QWEN3RMSNorm(self.head_dim) # ^^^^^^^
+        self.q_norm = QWEN3RMSNorm(
+            self.head_dim
+        )  # We have a parameter for the head dimension.
+        self.k_norm = QWEN3RMSNorm(self.head_dim)  # ^^^^^^^
 
         # RoPE
-        self.rope = QWEN3RoPE() # No parameters needed! 
+        self.rope = QWEN3RoPE()  # No parameters needed!
 
         # Output projection
-        self.out_proj = nn.Linear(self.q_dim, self.input_dim, bias=False, dtype=self.dtype) # [q_dim, input_dim]
+        self.out_proj = nn.Linear(
+            self.q_dim, self.input_dim, bias=False, dtype=self.dtype
+        )  # [q_dim, input_dim]
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+    ) -> torch.Tensor:
         """
         Forward pass for the GQA attention.
 
         Arguments:
-        - x: The input tensor. 
+        - x: The input tensor.
         - mask: The mask tensor for causal attention.
         - cos: The cosine values for the RoPE.
         - sin: The sine values for the RoPE.
@@ -274,20 +330,28 @@ class QWEN3GQAAttention(nn.Module):
         Returns:
         - x: The output tensor.
         """
-        batch_size, seq_len, embedding_dim = x.shape # embedding_dim not used, just named for clarity.
+        batch_size, seq_len, embedding_dim = (
+            x.shape
+        )  # embedding_dim not used, just named for clarity.
 
         # Projections
-        queries = self.q_proj(x) # [batch_size, seq_len, q_dim]
-        keys = self.k_proj(x) # [batch_size, seq_len, kv_dim]
-        values = self.v_proj(x) # [batch_size, seq_len, kv_dim]
+        queries = self.q_proj(x)  # [batch_size, seq_len, q_dim]
+        keys = self.k_proj(x)  # [batch_size, seq_len, kv_dim]
+        values = self.v_proj(x)  # [batch_size, seq_len, kv_dim]
 
         # Reshape the projections to [batch_size, n_heads, seq_len, head_dim]
         # This is becuase we want to separate the heads into their own dimension so we can work with them.
         # View just reshapes the tensor. Transpose swaps the dims of seq_len and n_heads.
         # original shape: (batch_size, seq_len, head_dim) -> view (batch_size, seq_len, n_heads, head_dim) -> transpose (batch_size, n_heads, seq_len, head_dim)
-        queries = queries.view(batch_size, seq_len, self.num_q_heads, self.head_dim).transpose(1, 2) 
-        keys = keys.view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        values = values.view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        queries = queries.view(
+            batch_size, seq_len, self.num_q_heads, self.head_dim
+        ).transpose(1, 2)
+        keys = keys.view(
+            batch_size, seq_len, self.num_kv_heads, self.head_dim
+        ).transpose(1, 2)
+        values = values.view(
+            batch_size, seq_len, self.num_kv_heads, self.head_dim
+        ).transpose(1, 2)
 
         # QK Norm
         queries = self.q_norm(queries)
@@ -300,21 +364,33 @@ class QWEN3GQAAttention(nn.Module):
         # Expand K and V to match Q.
         # repeat_interleave will duplicate the heads like so (0, 1, 2) -> (0, 0, 1, 1, 2, 2)
         # Shapes will now match queries.
-        keys = keys.repeat_interleave(self.kv_group_size, dim=1) 
+        keys = keys.repeat_interleave(self.kv_group_size, dim=1)
         values = values.repeat_interleave(self.kv_group_size, dim=1)
 
         # Attention babaaayyyyy!
-        attention_scores = queries @ keys.transpose(-2, -1) # Transpose the seq_len, head_dim tensor, output is (batch_size, n_heads, seq_len, seq_len)
-        masked_scores = attention_scores.masked_fill(mask, -torch.inf) # Mask out the future tokens.
-        attention_weights = F.softmax(masked_scores / self.head_dim ** 0.5, dim=-1) # Softmax over the columns (each row gets a softmax).
+        attention_scores = (
+            queries @ keys.transpose(-2, -1)
+        )  # Transpose the seq_len, head_dim tensor, output is (batch_size, n_heads, seq_len, seq_len)
+        masked_scores = attention_scores.masked_fill(
+            mask, -torch.inf
+        )  # Mask out the future tokens.
+        attention_weights = F.softmax(
+            masked_scores / self.head_dim**0.5, dim=-1
+        )  # Softmax over the columns (each row gets a softmax).
 
         # Output
         # We dot scaled and values making [batch_size, n_heads, seq_len, head_dim]
         # Transpose the n_heads and seq_len dims, then reshape to [batch_size, seq_len, q_dim] (OG shape after projections).
-        attention_output = (attention_weights @ values).transpose(1, 2).reshape(batch_size, seq_len, self.q_dim)
+        attention_output = (
+            (attention_weights @ values)
+            .transpose(1, 2)
+            .reshape(batch_size, seq_len, self.q_dim)
+        )
 
         # Output projection back to input dim, input shape to attention == output shape from attention.
-        return self.out_proj(attention_output) # [batch_size, seq_len, q_dim] -> [batch_size, seq_len, embedding_dim]
+        return self.out_proj(
+            attention_output
+        )  # [batch_size, seq_len, q_dim] -> [batch_size, seq_len, embedding_dim]
 
 
 class QWEN3FFN(nn.Module):
@@ -327,7 +403,6 @@ class QWEN3FFN(nn.Module):
     - bias: Whether to use a bias term.
     """
 
-    
     def __init__(self, embedding_dim: int, hidden_dim: int, bias: bool = False):
         super().__init__()
         self.w1 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
@@ -337,6 +412,8 @@ class QWEN3FFN(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.w3(F.silu(self.w1(x)) * self.w2(x))
 
+
 class QWEN3LMHead(nn.Module):
-    """ The LM head for the model."""
+    """The LM head for the model."""
+
     pass
