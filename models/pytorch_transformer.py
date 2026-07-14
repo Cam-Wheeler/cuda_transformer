@@ -139,12 +139,53 @@ class QWEN3Block(nn.Module):
 
     - RMSNorm 1
     - Masked GQA Attention (ROPE and QK-Norm included)
-    - Res connection 1
+    - Res connection 1 addition.
     - RMSNorm 2
     - FFN
-    - Res connection 2
+    - Res connection 2 addition.
     """
-    pass
+
+    def __init__(self, config: QWEN3Config) -> None:
+        super().__init__()
+        self.norm_1 = QWEN3RMSNorm(config.embedding_dim)
+        self.group_query_attn = QWEN3GQAAttention(
+            input_dim=config.embedding_dim, 
+            num_q_heads=config.num_q_heads,
+            num_kv_heads=config.num_kv_heads,
+            head_dim=config.head_dim
+        )
+        self.norm_2 = QWEN3RMSNorm(config.embedding_dim)
+        self.ffn = QWEN3FFN(
+            embedding_dim=config.embedding_dim, 
+            hidden_dim=config.fnn_hidden_dim,
+            bias=False
+        )
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the QWEN-3 block.
+
+        Arguments:
+        - x: The input tensor.
+        - mask: The mask tensor for causal attention.
+        - cos: The cosine values for the RoPE.
+        - sin: The sine values for the RoPE.
+
+        Returns:
+        - x: The output tensor.
+        """
+        residual = x # [batch, seq_len, embed_dim]
+        x = self.norm_1(x)
+        x = self.group_query_attn(x, mask, cos, sin) # [batch_size, seq_len, embed_dim]
+        x = x + residual # Elementwise addition.
+
+        residual = x
+        x = self.norm_2(x)
+        x = self.ffn(x) # SwiGLU
+        x = x + residual
+
+        return x
+
 
 class QWEN3RMSNorm(nn.Module):
     """
@@ -172,6 +213,7 @@ class QWEN3RMSNorm(nn.Module):
         sqrt_norm = x  * torch.rsqrt(mean_squared + self.epsilon) # Now we take the rsqrt (not sqrt) and add epsilon.
         scaled = sqrt_norm * self.scale # Now we scale the input.
         return scaled.type(original_type)
+
 
 class QWEN3GQAAttention(nn.Module):
     """
@@ -250,7 +292,7 @@ class QWEN3GQAAttention(nn.Module):
         # QK Norm
         queries = self.q_norm(queries)
         keys = self.k_norm(keys)
-        
+
         # RoPE, spinnnnnnnnnnnnnnn.
         queries = self.rope(queries, cos, sin)
         keys = self.rope(keys, cos, sin)
@@ -275,7 +317,6 @@ class QWEN3GQAAttention(nn.Module):
         return self.out_proj(attention_output) # [batch_size, seq_len, q_dim] -> [batch_size, seq_len, embedding_dim]
 
 
-
 class QWEN3FFN(nn.Module):
     """
     Feed-Forward Network (FFN) using GLU with SiLU activation.
@@ -285,6 +326,7 @@ class QWEN3FFN(nn.Module):
     - hidden_dim: The dimension of the hidden layer.
     - bias: Whether to use a bias term.
     """
+
     
     def __init__(self, embedding_dim: int, hidden_dim: int, bias: bool = False):
         super().__init__()
