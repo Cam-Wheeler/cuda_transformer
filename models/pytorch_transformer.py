@@ -63,7 +63,7 @@ class QWEN3Embedding(nn.Module):
 class QWEN3RoPE(nn.Module):
     """ RoPE embedding for the model."""
     
-    def __init__(self, config: QWEN3Config):
+    def __init__(self):
         super().__init__()
 
     @staticmethod
@@ -175,37 +175,49 @@ class QWEN3RMSNorm(nn.Module):
 
 class QWEN3GQAAttention(nn.Module):
     """
-    Grouped Query Attention (GQA)    
+    Grouped Query Attention (GQA)
+
+    Arguments:
+    - input_dim: The dimension of the input tensor.
+    - num_q_heads: The number of query heads.
+    - num_kv_heads: The number of key/value heads.
+    - head_dim: The dimension of each head.
+    - dtype: The dtype of the tensors.
+
+    Returns:
+    - x: The output tensor.
     """
-    def __init__(self, input_dim: int, hidden_dim:int, num_q_heads: int, num_kv_heads: int, head_dim: int, dtype: torch.dtype = torch.float32):
+    def __init__(self, input_dim: int, num_q_heads: int, num_kv_heads: int, head_dim: int, dtype: torch.dtype = torch.float32):
         super().__init__()
         # Setup dimensions.
-        self.input_dim = input_dim # embedding dimension.
-        self.hidden_dim = hidden_dim # hidden dimension.
+        self.input_dim = input_dim # embedding dimension (the size of the token vectors).
+        self.head_dim = head_dim # dimension of each Q head.
         self.num_q_heads = num_q_heads # number of query heads.
-        self.head_dim = head_dim # dimension of each Q head. (This should be the hidden dimension divided by Q heads).
+        self.q_dim = self.num_q_heads * self.head_dim # dimension of all Q heads.
         self.num_kv_heads = num_kv_heads # number of key/value heads.
-        self.kv_dim = head_dim * num_kv_heads # dimension of all KV heads.
+        self.kv_dim = self.num_kv_heads * self.head_dim # dimension of all KV heads.
+        self.kv_group_size = self.num_q_heads // self.num_kv_heads # number of Q heads per KV group.
         self.dtype = dtype # dtype of the tensors.
 
-        # Check dimensions.
-        assert self.head_dim * self.num_q_heads == self.hidden_dim, "Head dimension * number of Q heads must equal hidden dimension."
+        # Check dimensions. (this is slightly overkill but I want to ensure I am correct).
+        assert self.num_q_heads > self.num_kv_heads, "Number of Q heads must be greater than number of KV heads for GQA."
+        assert self.q_dim > self.kv_dim, "Q dimension must be larger than KV dimension, this is the whole point of GQA."
         assert self.num_q_heads % self.num_kv_heads == 0, "num_q_heads must be divisible by num_kv_heads for GQA grouping."
 
         # Weights for projections.
-        self.q_proj = nn.Linear(self.input_dim, self.hidden_dim, bias=False, dtype=self.dtype)
-        self.k_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype)
-        self.v_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype)
+        self.q_proj = nn.Linear(self.input_dim, self.q_dim, bias=False, dtype=self.dtype) # Project into q space. [input_dim, q_dim]
+        self.k_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype)  # Project into kv space. [input_dim, kv_dim]
+        self.v_proj = nn.Linear(self.input_dim, self.kv_dim, bias=False, dtype=self.dtype) # ^^^^^^^
 
         # QK-Norm
-        self.q_norm = QWEN3RMSNorm(self.head_dim, dtype=self.dtype)
-        self.k_norm = QWEN3RMSNorm(self.head_dim, dtype=self.dtype)
+        self.q_norm = QWEN3RMSNorm(self.head_dim) # We have a parameter for the head dimension.
+        self.k_norm = QWEN3RMSNorm(self.head_dim) # ^^^^^^^
 
         # RoPE
         self.rope = QWEN3RoPE() # No parameters needed! 
 
         # Output projection
-        self.out_proj = nn.Linear(self.hidden_dim, self.input_dim, bias=False, dtype=self.dtype) # [hidden_dim, input_dim]
+        self.out_proj = nn.Linear(self.q_dim, self.input_dim, bias=False, dtype=self.dtype) # [q_dim, input_dim]
 
     def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         """
