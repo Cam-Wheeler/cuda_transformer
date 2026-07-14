@@ -219,19 +219,62 @@ class QWEN3GQAAttention(nn.Module):
         # Output projection
         self.out_proj = nn.Linear(self.q_dim, self.input_dim, bias=False, dtype=self.dtype) # [q_dim, input_dim]
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         """
         Forward pass for the GQA attention.
 
         Arguments:
         - x: The input tensor. 
+        - mask: The mask tensor for causal attention.
         - cos: The cosine values for the RoPE.
         - sin: The sine values for the RoPE.
 
         Returns:
         - x: The output tensor.
         """
-        pass
+        batch_size, seq_len, embedding_dim = x.shape # embedding_dim not used, just named for clarity.
+
+        # Projections
+        queries = self.q_proj(x) # [batch_size, seq_len, q_dim]
+        keys = self.k_proj(x) # [batch_size, seq_len, kv_dim]
+        values = self.v_proj(x) # [batch_size, seq_len, kv_dim]
+
+        # Reshape the projections to [batch_size, n_heads, seq_len, head_dim]
+        # This is becuase we want to separate the heads into their own dimension so we can work with them.
+        # View just reshapes the tensor. Transpose swaps the dims of seq_len and n_heads.
+        # original shape: (batch_size, seq_len, head_dim) -> view (batch_size, seq_len, n_heads, head_dim) -> transpose (batch_size, n_heads, seq_len, head_dim)
+        queries = queries.view(batch_size, seq_len, self.num_q_heads, self.head_dim).transpose(1, 2) 
+        keys = keys.view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        values = values.view(batch_size, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2)
+
+        # QK Norm
+        queries = self.q_norm(queries)
+        keys = self.k_norm(keys)
+        
+        # RoPE, spinnnnnnnnnnnnnnn.
+        queries = self.rope(queries, cos, sin)
+        keys = self.rope(keys, cos, sin)
+
+        # Expand K and V to match Q.
+        # repeat_interleave will duplicate the heads like so (0, 1, 2) -> (0, 0, 1, 1, 2, 2)
+        # Shapes will now match queries.
+        keys = keys.repeat_interleave(self.kv_group_size, dim=1) 
+        values = values.repeat_interleave(self.kv_group_size, dim=1)
+
+        # Attention babaaayyyyy!
+        attention_scores = queries @ keys.transpose(-2, -1) # Transpose the seq_len, head_dim tensor, output is (batch_size, n_heads, seq_len, seq_len)
+        masked_scores = attention_scores.masked_fill(mask, -torch.inf) # Mask out the future tokens.
+        attention_weights = F.softmax(masked_scores / self.head_dim ** 0.5, dim=-1) # Softmax over the columns (each row gets a softmax).
+
+        # Output
+        # We dot scaled and values making [batch_size, n_heads, seq_len, head_dim]
+        # Transpose the n_heads and seq_len dims, then reshape to [batch_size, seq_len, q_dim] (OG shape after projections).
+        attention_output = (attention_weights @ values).transpose(1, 2).reshape(batch_size, seq_len, self.q_dim)
+
+        # Output projection back to input dim, input shape to attention == output shape from attention.
+        return self.out_proj(attention_output) # [batch_size, seq_len, q_dim] -> [batch_size, seq_len, embedding_dim]
+
+
 
 class QWEN3FFN(nn.Module):
     """
