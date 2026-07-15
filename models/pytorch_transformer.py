@@ -77,6 +77,8 @@ class QWEN3(nn.Module):
         )
         self.norm = QWEN3RMSNorm(config.embedding_dim)
         self.lm_head = QWEN3LMHead(config.embedding_dim, config.vocab_size)
+        if config.tie_embeddings:
+            self.lm_head.proj.weight = self.embedding_layer.weight # Tie the embedding layer and head layer together. 
         cos, sin = QWEN3RoPE.compute_rope_parameters(
             config.head_dim,
             max_context_len=config.context_length

@@ -16,6 +16,7 @@ class QWEN3Config(BaseModel):
     num_kv_heads: int = 8 # 8 KV heads used for 16 Q heads.
     head_dim: int = 128 # Dimension of the heads.
     num_layers: int = 28 # Number of layers.
+    tie_embeddings: bool = True # Use tied embeddings
 
 class TrainingConfig(BaseModel):
     """
