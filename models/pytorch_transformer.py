@@ -16,7 +16,7 @@ Model Architecture:
     - 28 Layers
     - Heads (Q / KV): 16/8
     - Head dim: 128
-    - Hidden activation: SELU
+    - Hidden activation: SiLU
     - Hidden dim: 1024
     - Num Q heads: 16
     - Num KV heads: 8
@@ -91,12 +91,21 @@ class QWEN3(nn.Module):
         Forward pass for the model.
 
         Arguments:
-        - x: The input tensor.
+        - x: The input tensor token ids.
 
         Returns:
         - x: The output tensor.
         """
-        pass
+        
+        x = self.embedding_layer(x) # embed the tokens into vectors [batch_size, seq_len, embedding_dim]
+        seq_len = x.shape[1] 
+        mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1) # Generate the causal mask for causal attention. 
+
+        for block in self.transformer_blocks:
+            x = block(x, mask, self.cos, self.sin)
+        x = self.norm(x) # [batch_size, seq_len, embedding_dim]
+        logits = self.lm_head(x) # [batch_size, seq_len, vocab_size]
+        return logits
 
 
 class QWEN3RoPE(nn.Module):
