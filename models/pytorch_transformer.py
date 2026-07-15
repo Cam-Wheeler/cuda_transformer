@@ -49,18 +49,54 @@ from config import QWEN3Config
 
 
 class QWEN3(nn.Module):
-    """A QWEN-3 style transformer model."""
+    """
+    A QWEN-3 style transformer model.
+    
+    Arguments:
+    - config: The configuration for the model.
+
+    Returns:
+    - x: The output tensor.
+
+    Architecture:
+    - Embedding layer
+    - Transformer blocks * num_layers
+    - RMSNorm
+    - LM head
+    """
 
     def __init__(self, config: QWEN3Config):
         super().__init__()
         self.config = config
+        self.embedding_layer = nn.Embedding(
+            config.vocab_size,
+            config.embedding_dim
+        )
+        self.transformer_blocks = nn.ModuleList(
+            [QWEN3Block(config) for _ in range(config.num_layers)]
+        )
+        self.norm = QWEN3RMSNorm(config.embedding_dim)
+        self.lm_head = QWEN3LMHead(config.embedding_dim, config.vocab_size)
+        cos, sin = QWEN3RoPE.compute_rope_parameters(
+            config.head_dim,
+            max_context_len=config.context_length
+            # We will use the RoPE deafult for theta_base.
+        )
+        # Register the buffers to torch (as currently cos and sin are on the cpu).
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass for the model.
+
+        Arguments:
+        - x: The input tensor.
+
+        Returns:
+        - x: The output tensor.
+        """
         pass
-
-
-class QWEN3Embedding(nn.Module):
-    """The embedding layer for the model."""
-
-    pass
 
 
 class QWEN3RoPE(nn.Module):
@@ -299,7 +335,7 @@ class QWEN3GQAAttention(nn.Module):
         )  # Project into kv space. [input_dim, kv_dim]
         self.v_proj = nn.Linear(
             self.input_dim, self.kv_dim, bias=False, dtype=self.dtype
-        )  # ^^^^^^^
+        ) # Project into kv space. [input_dim, kv_dim]
 
         # QK-Norm
         self.q_norm = QWEN3RMSNorm(
@@ -416,4 +452,9 @@ class QWEN3FFN(nn.Module):
 class QWEN3LMHead(nn.Module):
     """The LM head for the model."""
 
-    pass
+    def __init__(self, embedding_dim: int, vocab_size: int):
+        super().__init__()
+        self.proj = nn.Linear(embedding_dim, vocab_size, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.proj(x)
