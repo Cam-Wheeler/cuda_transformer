@@ -51,7 +51,7 @@ from config import QWEN3Config
 class QWEN3(nn.Module):
     """
     A QWEN-3 style transformer model.
-    
+
     Arguments:
     - config: The configuration for the model.
 
@@ -68,20 +68,19 @@ class QWEN3(nn.Module):
     def __init__(self, config: QWEN3Config):
         super().__init__()
         self.config = config
-        self.embedding_layer = nn.Embedding(
-            config.vocab_size,
-            config.embedding_dim
-        )
+        self.embedding_layer = nn.Embedding(config.vocab_size, config.embedding_dim)
         self.transformer_blocks = nn.ModuleList(
             [QWEN3Block(config) for _ in range(config.num_layers)]
         )
         self.norm = QWEN3RMSNorm(config.embedding_dim)
         self.lm_head = QWEN3LMHead(config.embedding_dim, config.vocab_size)
         if config.tie_embeddings:
-            self.lm_head.proj.weight = self.embedding_layer.weight # Tie the embedding layer and head layer together. 
+            self.lm_head.proj.weight = (
+                self.embedding_layer.weight
+            )  # Tie the embedding layer and head layer together.
         cos, sin = QWEN3RoPE.compute_rope_parameters(
             config.head_dim,
-            max_context_len=config.context_length
+            max_context_len=config.context_length,
             # We will use the RoPE deafult for theta_base.
         )
         # Register the buffers to torch (as currently cos and sin are on the cpu).
@@ -98,15 +97,19 @@ class QWEN3(nn.Module):
         Returns:
         - x: The output tensor.
         """
-        
-        x = self.embedding_layer(x) # embed the tokens into vectors [batch_size, seq_len, embedding_dim]
-        seq_len = x.shape[1] 
-        mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1) # Generate the causal mask for causal attention. 
+
+        x = self.embedding_layer(
+            x
+        )  # embed the tokens into vectors [batch_size, seq_len, embedding_dim]
+        seq_len = x.shape[1]
+        mask = torch.triu(
+            torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1
+        )  # Generate the causal mask for causal attention.
 
         for block in self.transformer_blocks:
             x = block(x, mask, self.cos, self.sin)
-        x = self.norm(x) # [batch_size, seq_len, embedding_dim]
-        logits = self.lm_head(x) # [batch_size, seq_len, vocab_size]
+        x = self.norm(x)  # [batch_size, seq_len, embedding_dim]
+        logits = self.lm_head(x)  # [batch_size, seq_len, vocab_size]
         return logits
 
 
@@ -346,7 +349,7 @@ class QWEN3GQAAttention(nn.Module):
         )  # Project into kv space. [input_dim, kv_dim]
         self.v_proj = nn.Linear(
             self.input_dim, self.kv_dim, bias=False, dtype=self.dtype
-        ) # Project into kv space. [input_dim, kv_dim]
+        )  # Project into kv space. [input_dim, kv_dim]
 
         # QK-Norm
         self.q_norm = QWEN3RMSNorm(
