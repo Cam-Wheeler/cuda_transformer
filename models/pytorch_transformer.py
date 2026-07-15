@@ -102,6 +102,9 @@ class QWEN3(nn.Module):
             x
         )  # embed the tokens into vectors [batch_size, seq_len, embedding_dim]
         seq_len = x.shape[1]
+        assert seq_len <= self.config.context_length, (
+            f"Sequence length {seq_len} is greater than context length {self.config.context_length}"
+        )
         mask = torch.triu(
             torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1
         )  # Generate the causal mask for causal attention.
