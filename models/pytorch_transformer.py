@@ -42,10 +42,13 @@ I also used several other resources to help me understand and build!
 import torch
 from torch import nn
 from torch.nn import functional as F
-from typing import Tuple
+from typing import Tuple, Union
 
 # Local imports
-from config import QWEN3Config
+from config import (
+    QWEN3_MINI_Config,
+    QWEN3_06B_Config,
+)
 
 
 class QWEN3(nn.Module):
@@ -65,7 +68,7 @@ class QWEN3(nn.Module):
     - LM head
     """
 
-    def __init__(self, config: QWEN3Config):
+    def __init__(self, config: Union[QWEN3_MINI_Config, QWEN3_06B_Config]):
         super().__init__()
         self.config = config
         self.embedding_layer = nn.Embedding(config.vocab_size, config.embedding_dim)
@@ -216,7 +219,7 @@ class QWEN3Block(nn.Module):
     - Res connection 2 addition.
     """
 
-    def __init__(self, config: QWEN3Config) -> None:
+    def __init__(self, config: Union[QWEN3_MINI_Config, QWEN3_06B_Config]) -> None:
         super().__init__()
         self.norm_1 = QWEN3RMSNorm(config.embedding_dim)
         self.group_query_attn = QWEN3GQAAttention(
