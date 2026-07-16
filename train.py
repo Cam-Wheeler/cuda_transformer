@@ -24,13 +24,13 @@ from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel
 
 # local imports
-from config import TrainingConfig
+from config import StandardTrainerConfig 
 from models.pytorch_transformer import QWEN3
 
 
 class Trainer(object):
 
-    def __init__(self, config: TrainingConfig, model: QWEN3, train_dataloader: DataLoader, val_dataloader: DataLoader) -> None:
+    def __init__(self, config: StandardTrainerConfig, model: QWEN3, train_dataloader: DataLoader, val_dataloader: DataLoader) -> None:
         self.config = config
         self.model = model
         self.train_dataloader = train_dataloader
