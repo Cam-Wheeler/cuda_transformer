@@ -38,8 +38,12 @@ TRAINER_CONFIGS = {
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_config", type=str, required=True, choices=MODEL_CONFIGS.keys())
-    parser.add_argument("--trainer_config", type=str, required=True, choices=TRAINER_CONFIGS.keys())
+    parser.add_argument(
+        "--model_config", type=str, required=True, choices=MODEL_CONFIGS.keys()
+    )
+    parser.add_argument(
+        "--trainer_config", type=str, required=True, choices=TRAINER_CONFIGS.keys()
+    )
     parser.add_argument("--seed", type=int, default=1501)
 
     args = parser.parse_args()
@@ -47,7 +51,7 @@ def main() -> int:
     # Setup the configs
     model_config = MODEL_CONFIGS[args.model_config]
     trainer_config = TRAINER_CONFIGS[args.trainer_config]
-    
+
     print(f"Model config: {model_config}")
     print(f"Trainer config: {trainer_config}")
     print(f"Seed: {args.seed}")
@@ -56,25 +60,36 @@ def main() -> int:
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
-    
+
     # Setup the model
-    model = QWEN3(model_config)
+    # model = QWEN3(model_config)
 
     # Setup the data.
-    train_dataset = TinyStoriesDatset(Path("data/train.bin"), block_size=model_config.context_length)
-    validation_dataset = TinyStoriesDatset(Path("data/validation.bin"), block_size=model_config.context_length)
+    train_dataset = TinyStoriesDatset(
+        Path("data/train.bin"), block_size=model_config.context_length, random=True
+    )
+    validation_dataset = TinyStoriesDatset(
+        Path("data/validation.bin"),
+        block_size=model_config.context_length,
+        random=False,
+    )
 
-    train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    validation_dataloader = DataLoader(validation_dataset, batch_size=16, shuffle=False)
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=16, shuffle=False
+    )  # Randomness comes from the __getitem__
+    validation_dataloader = DataLoader(
+        validation_dataset, batch_size=16, shuffle=False, drop_last=True
+    )
 
     # Setup the trainer
-    # trainer = Trainer(trainer_config, model)
+    # trainer = Trainer(trainer_config, model, train_dataloader, validation_dataloader)
 
     # Train
-    # trainer.train()
+    # trainer.train_end_to_end()
 
     # Clean up
     return 0
+
 
 if __name__ == "__main__":
     main()
