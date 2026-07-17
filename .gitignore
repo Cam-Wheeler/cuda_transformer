@@ -17,7 +17,8 @@ dist/
 checkpoints/
 
 # Data files - downloaded at runtime
-data/cache/
+data/
+cache/
 
 # Environment variables
 .env
