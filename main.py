@@ -12,6 +12,7 @@ Complete end to end pipeline:
 import argparse
 import torch
 from torch.utils.data import DataLoader
+from pathlib import Path
 
 # Local imports
 from config import (
@@ -23,6 +24,7 @@ from config import (
 )
 from train import Trainer
 from models.pytorch_transformer import QWEN3
+from dataset import TinyStoriesDatset
 
 MODEL_CONFIGS = {
     "qwen3_mini": QWEN3_MINI_Config(),
@@ -59,7 +61,11 @@ def main() -> int:
     model = QWEN3(model_config)
 
     # Setup the data.
-    # We will need to sort out the data loaders here.
+    train_dataset = TinyStoriesDatset(Path("data/train.bin"), block_size=model_config.context_length)
+    validation_dataset = TinyStoriesDatset(Path("data/validation.bin"), block_size=model_config.context_length)
+
+    train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    validation_dataloader = DataLoader(validation_dataset, batch_size=16, shuffle=False)
 
     # Setup the trainer
     # trainer = Trainer(trainer_config, model)
