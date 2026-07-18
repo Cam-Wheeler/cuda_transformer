@@ -102,6 +102,7 @@ class Trainer(object):
 
         if self.wandb_log:
             wandb.init(
+                entity="camwheeler135-university-of-edinburgh",
                 project="cuda-transformer",
                 config=self.config.model_dump(),
             )

@@ -11,7 +11,10 @@ COPY pyproject.toml uv.lock ./
 
 # Install torch from the CUDA wheel index (important)
 ENV UV_TORCH_BACKEND=cu126
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --python 3.12
 
-COPY . .
+COPY config.py train.py download_and_tokenise.py dataset.py main.py /app
+COPY models /app/models
+
+
 ENV PATH="/app/.venv/bin:$PATH"

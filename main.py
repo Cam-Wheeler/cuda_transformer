@@ -68,19 +68,19 @@ def main() -> int:
 
     # Setup the data.
     train_dataset = TinyStoriesDatset(
-        Path("data/train.bin"), block_size=model_config.context_length, random=True
+        Path("/data/train.bin"), block_size=model_config.context_length, random=True
     )
     validation_dataset = TinyStoriesDatset(
-        Path("data/validation.bin"),
+        Path("/data/validation.bin"),
         block_size=model_config.context_length,
         random=False,
     )
 
     train_dataloader = DataLoader(
-        train_dataset, batch_size=16, shuffle=False
+        train_dataset, batch_size=4, shuffle=False
     )  # Randomness comes from the __getitem__
     validation_dataloader = DataLoader(
-        validation_dataset, batch_size=16, shuffle=False, drop_last=True
+        validation_dataset, batch_size=4, shuffle=False, drop_last=True
     )
 
     # Setup the trainer

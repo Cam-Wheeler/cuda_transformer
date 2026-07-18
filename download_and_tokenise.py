@@ -23,16 +23,23 @@ from tqdm import tqdm
 from pathlib import Path
 from transformers import AutoTokenizer
 from datasets import load_dataset
-from dotenv import load_dotenv
+from argparse import ArgumentParser
 
 
 DATASET_NAME = "roneneldan/TinyStories"
-DATA_ROOT = Path(os.path.dirname(__file__) + "/" + "data")
 NUM_PROCESSES = os.cpu_count() // 2
 
 
 def main():
-    load_dotenv()
+
+    parser = ArgumentParser()
+    parser.add_argument("--location", type=str, default="local", choices=["local", "cluster"])
+    args = parser.parse_args()
+
+    if args.location == "cluster":
+        DATA_ROOT = Path("/data")
+    else:
+        DATA_ROOT = Path(os.path.dirname(__file__) + "/" + "data")
 
     # Load in tokensier
     print("Loading Tokeniser...")
