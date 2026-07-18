@@ -40,6 +40,6 @@ class StandardTrainerConfig(BaseModel):
     """
     Configuration for training.
     """
-    pass
+    wandb_log: bool = False
 
 

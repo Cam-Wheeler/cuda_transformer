@@ -62,7 +62,7 @@ def main() -> int:
         torch.cuda.manual_seed_all(args.seed)
 
     # Setup the model
-    # model = QWEN3(model_config)
+    model = QWEN3(model_config)
 
     # Setup the data.
     train_dataset = TinyStoriesDatset(
@@ -82,10 +82,11 @@ def main() -> int:
     )
 
     # Setup the trainer
-    # trainer = Trainer(trainer_config, model, train_dataloader, validation_dataloader)
+    trainer = Trainer(trainer_config, model, train_dataloader, validation_dataloader)
 
     # Train
-    # trainer.train_end_to_end()
+    results = trainer.train_end_to_end()
+    print(f"Results: {results}")
 
     # Clean up
     return 0
