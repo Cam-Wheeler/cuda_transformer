@@ -54,23 +54,23 @@ class Trainer(object):
         self.min_lr: float = (
             self.learning_rate * 0.1
         )  # should be ~= learning_rate/10 per Chinchilla
-        self.optimiser: AdamW = AdamW(
+        self.optimiser = AdamW(
             params=self.model.parameters(),
             lr=self.learning_rate,
             betas=(config.beta1, config.beta2),
         )
-        self.lr_warmup: LinearLR = LinearLR(
+        self.lr_warmup = LinearLR(
             optimizer=self.optimiser,
             start_factor=1e-3,
             end_factor=1.0,
             total_iters=self.warmup_iters,
         )
-        self.lr_decay: CosineAnnealingLR = CosineAnnealingLR(
+        self.lr_decay = CosineAnnealingLR(
             optimizer=self.optimiser,
             T_max=self.total_iterations - self.warmup_iters,
             eta_min=self.min_lr,
         )
-        self.lr_scheduler: SequentialLR = SequentialLR(
+        self.lr_scheduler = SequentialLR(
             self.optimiser,
             schedulers=[self.lr_warmup, self.lr_decay],
             milestones=[self.warmup_iters],
