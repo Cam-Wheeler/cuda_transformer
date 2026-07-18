@@ -83,12 +83,13 @@ class Trainer(object):
             # perhaps we need to update the learning rate sceduler here.
             pass
         # Logs and saving
+        self.log_interval: int = config.log_interval
         self.root_save_path: Path = Path(config.root_save_path)
         self.wandb_log: bool = config.wandb_log
 
         # Move that MF to device to go brrrrr.
         self.device: torch.device = config.device
-        self.model: QWEN3 = self.model.to(self.device)
+        self.model.to(self.device)
 
     def train_end_to_end(self) -> Dict[str, int]:
         """
@@ -127,13 +128,14 @@ class Trainer(object):
                     validation_runs += 1
 
                 # log:
-                self.log_metrics(
-                    i,
-                    total_tokens_seen,
-                    train_results,
-                    validation_results,
-                    use_wandb=self.wandb_log,
-                )
+                if i % self.log_interval == 0:
+                    self.log_metrics(
+                        i,
+                        total_tokens_seen,
+                        train_results,
+                        validation_results,
+                        use_wandb=self.wandb_log,
+                    )
 
                 # We checkpoint at each eval stage.
                 if validation_results:

@@ -26,7 +26,7 @@ class TinyStoriesDatset(Dataset):
         self.random = random
 
     def __len__(self):
-        return len(self.data) // self.block_size
+        return (len(self.data) - 1) // self.block_size
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.random:

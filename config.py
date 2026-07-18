@@ -36,10 +36,38 @@ class QWEN3_06B_Config(BaseModel):
     num_layers: int = 28 # Number of layers.
     tie_embeddings: bool = True # Use tied embeddings
 
+class MiniTrainerConfig(BaseModel):
+    """
+    Configuration for the tiny training run.
+    """
+    total_iterations: int = 600
+    gradient_accumulation_steps: int = 4
+    warmup_iters: int = 100
+    learning_rate: float = 6e-4 # used in Kaparthy's nanogpt.
+    beta1: float = 0.9
+    beta2: float = 0.95
+    eval_interval: int = 100
+    resume: bool = False
+    wandb_log: bool = True
+    root_save_path: str = "/data/mini"
+    device: str = "cuda"
+    log_interval: int = 50
+
 class StandardTrainerConfig(BaseModel):
     """
     Configuration for training.
     """
+    total_iterations: int = 600000 
     wandb_log: bool = False
+    gradient_accumulation_steps: int = 10
+    warmup_iters: int = 1000
+    learning_rate: float = 6e-4 # used in Kaparthy's nanogpt.
+    beta1: float = 0.9
+    beta2: float = 0.95
+    eval_interval: int = 100
+    resume: bool = False
+    root_save_path: str = "/data/standard"
+    device: str = "cuda"
+    log_interval: int = 50
 
 

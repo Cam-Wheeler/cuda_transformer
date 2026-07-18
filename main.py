@@ -21,6 +21,7 @@ from config import (
 )
 from config import (
     StandardTrainerConfig,
+    MiniTrainerConfig,
 )
 from train import Trainer
 from models.pytorch_transformer import QWEN3
@@ -32,6 +33,7 @@ MODEL_CONFIGS = {
 }
 
 TRAINER_CONFIGS = {
+    "mini": MiniTrainerConfig(),
     "standard": StandardTrainerConfig(),
 }
 
