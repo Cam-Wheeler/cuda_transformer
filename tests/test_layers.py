@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from config import QWEN3Config
+from training.config import QWEN3_MINI_Config
 from models.pytorch_transformer import (
     QWEN3,
     QWEN3Block,
@@ -15,7 +15,7 @@ from models.pytorch_transformer import (
 
 @pytest.fixture
 def tiny_config():
-    return QWEN3Config(
+    return QWEN3_MINI_Config(
         vocab_size=32,
         context_length=16,
         embedding_dim=64,

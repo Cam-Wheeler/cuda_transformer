@@ -17,10 +17,14 @@ dist/
 checkpoints/
 
 # Data files - downloaded at runtime
-data/cache/
+data/
+cache/
 
 # Environment variables
 .env
 
 # OS
 .DS_Store
+
+# Pytest
+.pytest_cache/
