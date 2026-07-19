@@ -21,7 +21,7 @@ Papers, books and code that helped me build:
 import wandb
 import torch
 from pathlib import Path
-from typing import Dict, Tuple, Iterator, Optional
+from typing import Dict, Tuple, Iterator, Optional, Union
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
@@ -29,14 +29,14 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
 
 # local imports
-from config import StandardTrainerConfig
+from training.config import StandardTrainerConfig, MiniTrainerConfig
 from models.pytorch_transformer import QWEN3
 
 
 class Trainer(object):
     def __init__(
         self,
-        config: StandardTrainerConfig,
+        config: Union[StandardTrainerConfig, MiniTrainerConfig],
         model: QWEN3,
         train_dataloader: DataLoader,
         val_dataloader: DataLoader,
@@ -46,11 +46,12 @@ class Trainer(object):
         self.train_dataloader = train_dataloader
         self.train_iter = iter(self.train_dataloader)
         self.val_dataloader = val_dataloader
+        
         # Main training setup
         self.gradient_accumulation_steps: int = config.gradient_accumulation_steps
         self.total_iterations: int = config.total_iterations
         self.warmup_iters: int = config.warmup_iters
-        self.learning_rate = config.learning_rate  # max learning rate
+        self.learning_rate: float = config.learning_rate  # max learning rate
         self.min_lr: float = (
             self.learning_rate * 0.1
         )  # should be ~= learning_rate/10 per Chinchilla
@@ -76,17 +77,22 @@ class Trainer(object):
             milestones=[self.warmup_iters],
         )
         self.eval_interval: int = config.eval_interval
+        
         # Resume logic
         self.resume: bool = config.resume
         if self.resume:
             # TODO: implement resume logic
             # perhaps we need to update the learning rate sceduler here.
             pass
+        
         # Logs and saving
         self.log_interval: int = config.log_interval
         self.root_save_path: Path = Path(config.root_save_path)
         self.wandb_log: bool = config.wandb_log
-
+        if self.wandb_log:
+            self.entity = config.wandb_entity
+            self.project = config.wandb_project
+        
         # Move that MF to device to go brrrrr.
         self.device: torch.device = config.device
         self.model.to(self.device)
@@ -102,8 +108,8 @@ class Trainer(object):
 
         if self.wandb_log:
             wandb.init(
-                entity="camwheeler135-university-of-edinburgh",
-                project="cuda-transformer",
+                entity=self.entity,
+                project=self.project,
                 config=self.config.model_dump(),
             )
 
@@ -112,7 +118,7 @@ class Trainer(object):
             for i in range(self.total_iterations):
                 # Iterate through the mini-batch.
                 self.optimiser.zero_grad()
-                train_results = self.train_single()
+                train_results = self._train_single()
                 self.optimiser.step()
 
                 total_tokens_seen += train_results["tokens"]
@@ -124,13 +130,13 @@ class Trainer(object):
                 # when eval, validate
                 validation_results = None
                 if i % self.eval_interval == 0:
-                    validation_results = self.validate_single()
+                    validation_results = self._validate_single()
                     validation_loss += validation_results["loss"]
                     validation_runs += 1
 
                 # log:
                 if i % self.log_interval == 0:
-                    self.log_metrics(
+                    self._log_metrics(
                         i,
                         total_tokens_seen,
                         train_results,
@@ -140,7 +146,7 @@ class Trainer(object):
 
                 # We checkpoint at each eval stage.
                 if validation_results:
-                    self.save_checkpoint(
+                    self._save_checkpoint(
                         i, validation_results["loss"], total_tokens_seen
                     )
         finally:
@@ -152,10 +158,10 @@ class Trainer(object):
             "average_train_loss": train_loss / self.total_iterations,
             "average_validation_loss": (
                 validation_loss / validation_runs if validation_runs > 0 else None
-            ),
+            )
         }
 
-    def train_single(self) -> Dict[str, int]:
+    def _train_single(self) -> Dict[str, float]:
         """
         Trains over a self.gradient_accumulation_steps of mini-batches.
         """
@@ -192,7 +198,7 @@ class Trainer(object):
             batch = next(iterator)  # take first batch of new epoch
             return batch, iterator  # return batch and the new iterator!
 
-    def validate_single(self) -> Dict[str, int]:
+    def _validate_single(self) -> Dict[str, float]:
         """
         Validates on the validation set a single time.
         """
@@ -208,7 +214,7 @@ class Trainer(object):
             "loss": valid_loss / len(self.val_dataloader)  # Average validation loss.
         }
 
-    def log_metrics(
+    def _log_metrics(
         self,
         step: int,
         tokens_seen_so_far: int,
@@ -227,12 +233,12 @@ class Trainer(object):
             metrics["val/loss"] = validation_metrics["loss"]
 
         # local
-        print(f"step {step}: {metrics}")
+        print(f"step {step}: {metrics}", flush=True)
 
         if use_wandb:
             wandb.log(metrics, step=step)
 
-    def save_checkpoint(
+    def _save_checkpoint(
         self, step: int, val_loss: float, total_tokens_seen: int
     ) -> None:
         path = self.root_save_path / "checkpoints" / f"step_{step}.pt"
@@ -248,4 +254,4 @@ class Trainer(object):
             "config": self.config.model_dump(),
         }
         torch.save(checkpoint, path)
-        print(f"saved checkpoint → {path}")
+        print(f"saved checkpoint → {path}", flush=True)

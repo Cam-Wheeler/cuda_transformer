@@ -9,12 +9,15 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
-# Install torch from the CUDA wheel index (important)
+# Install torch from the CUDA wheel index
 ENV UV_TORCH_BACKEND=cu126
 RUN uv sync --frozen --no-dev --python 3.12
 
-COPY config.py train.py download_and_tokenise.py dataset.py main.py /app
+COPY training /app/training
 COPY models /app/models
-
+COPY download_and_tokenise.py /app/download_and_tokenise.py
+COPY main.py /app/main.py
 
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Entrypoint will be set on K8s.

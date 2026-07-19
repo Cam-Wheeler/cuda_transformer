@@ -12,7 +12,7 @@ class QWEN3_MINI_Config(BaseModel):
 
     Currently the values are just place holders, these will be changed later!
     """
-    vocab_size: int = 151_936 # This is the size of the tokenizer vocabulary.
+    vocab_size: int = 151_643 # This is the size of the tokenizer vocabulary.
     context_length: int = 256 # Reduced massively for tiny stories.
     embedding_dim: int = 1024 # Dimension of the token embeddings (used throughout the model really).
     fnn_hidden_dim: int = 3072 # This hidden dim for the FNN.
@@ -26,7 +26,7 @@ class QWEN3_06B_Config(BaseModel):
     """
     Configuration for the QWEN-3 Style Transformer model.
     """
-    vocab_size: int = 151_936 # This is the size of the tokenizer vocabulary.
+    vocab_size: int = 151_643 # This is the size of the tokenizer vocabulary.
     context_length: int = 40_960 # This might need to be adjusted becuase we are training from scratch.
     embedding_dim: int = 1024 # Dimension of the token embeddings (used throughout the model really).
     fnn_hidden_dim: int = 3072 # This hidden dim for the FNN.
@@ -52,14 +52,16 @@ class MiniTrainerConfig(BaseModel):
     root_save_path: str = "/data/mini"
     device: str = "cuda"
     log_interval: int = 50
+    wandb_entity: str = "camwheeler135-university-of-edinburgh"
+    wandb_project: str = "cuda-transformer"
 
 class StandardTrainerConfig(BaseModel):
     """
     Configuration for training.
     """
     total_iterations: int = 600000 
-    wandb_log: bool = False
-    gradient_accumulation_steps: int = 10
+    wandb_log: bool = True
+    gradient_accumulation_steps: int = 4
     warmup_iters: int = 1000
     learning_rate: float = 6e-4 # used in Kaparthy's nanogpt.
     beta1: float = 0.9
@@ -69,5 +71,7 @@ class StandardTrainerConfig(BaseModel):
     root_save_path: str = "/data/standard"
     device: str = "cuda"
     log_interval: int = 50
+    wandb_entity: str = "camwheeler135-university-of-edinburgh"
+    wandb_project: str = "cuda-transformer"
 
 

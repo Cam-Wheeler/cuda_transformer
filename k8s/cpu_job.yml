@@ -49,11 +49,11 @@ spec:
           requests:
            nvidia.com/gpu: 0
            cpu: 8
-           memory: 16Gi
+           memory: 32Gi
           limits:
             nvidia.com/gpu: 0
             cpu: 8
-            memory: 16Gi
+            memory: 32Gi
         volumeMounts:
         - name: data
           mountPath: /data

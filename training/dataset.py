@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 
-class TinyStoriesDatset(Dataset):
+class TinyStoriesDataset(Dataset):
 
     def __init__(self, dataset: Path, block_size: int, random: bool = True) -> None:
         super().__init__()

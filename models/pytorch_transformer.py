@@ -45,7 +45,7 @@ from torch.nn import functional as F
 from typing import Tuple, Union
 
 # Local imports
-from config import (
+from training.config import (
     QWEN3_MINI_Config,
     QWEN3_06B_Config,
 )

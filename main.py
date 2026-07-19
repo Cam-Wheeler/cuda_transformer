@@ -1,12 +1,12 @@
 """
 Complete end to end pipeline:
-    X. Read in args for training.
-    X. Setup configs using args.
-    X. Setup the model.
-    X. Setup the trainer.
-    X. Train.
-    X. Clean up.
-    X. Party 🎉
+    1. Read in args for training.
+    2. Setup configs using args.
+    3. Setup the model.
+    4. Setup the trainer.
+    5. Train.
+    6. Clean up.
+    7. Party 🎉
 """
 
 import argparse
@@ -15,17 +15,15 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 
 # Local imports
-from config import (
+from training.config import (
     QWEN3_MINI_Config,
     QWEN3_06B_Config,
-)
-from config import (
-    StandardTrainerConfig,
     MiniTrainerConfig,
+    StandardTrainerConfig,
 )
-from train import Trainer
+from training.train import Trainer
 from models.pytorch_transformer import QWEN3
-from dataset import TinyStoriesDatset
+from training.dataset import TinyStoriesDataset
 
 MODEL_CONFIGS = {
     "qwen3_mini": QWEN3_MINI_Config(),
@@ -54,9 +52,9 @@ def main() -> int:
     model_config = MODEL_CONFIGS[args.model_config]
     trainer_config = TRAINER_CONFIGS[args.trainer_config]
 
-    print(f"Model config: {model_config}")
-    print(f"Trainer config: {trainer_config}")
-    print(f"Seed: {args.seed}")
+    print(f"Model config: {model_config}", flush=True)
+    print(f"Trainer config: {trainer_config}", flush=True)
+    print(f"Seed: {args.seed}", flush=True)
 
     # Setup the seed
     torch.manual_seed(args.seed)
@@ -67,10 +65,10 @@ def main() -> int:
     model = QWEN3(model_config)
 
     # Setup the data.
-    train_dataset = TinyStoriesDatset(
+    train_dataset = TinyStoriesDataset(
         Path("/data/train.bin"), block_size=model_config.context_length, random=True
     )
-    validation_dataset = TinyStoriesDatset(
+    validation_dataset = TinyStoriesDataset(
         Path("/data/validation.bin"),
         block_size=model_config.context_length,
         random=False,
@@ -88,7 +86,7 @@ def main() -> int:
 
     # Train
     results = trainer.train_end_to_end()
-    print(f"Results: {results}")
+    print(f"Results: {results}", flush=True)
 
     # Clean up
     return 0
