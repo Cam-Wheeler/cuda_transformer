@@ -9,6 +9,7 @@ Complete end to end pipeline:
     7. Party 🎉
 """
 
+import os
 import argparse
 import torch
 from torch.utils.data import DataLoader
@@ -44,6 +45,9 @@ def main() -> int:
     parser.add_argument(
         "--trainer_config", type=str, required=True, choices=TRAINER_CONFIGS.keys()
     )
+    parser.add_argument(
+        "--location", type=str, required=True, choices=["local", "cluster"]
+    )
     parser.add_argument("--seed", type=int, default=1501)
 
     args = parser.parse_args()
@@ -65,11 +69,20 @@ def main() -> int:
     model = QWEN3(model_config)
 
     # Setup the data.
+    if args.location == "local":
+        train_path = Path(os.path.dirname(__file__) + "/" + "data" + "/train.bin")
+        validation_path = Path(
+            os.path.dirname(__file__) + "/" + "data" + "/validation.bin"
+        )
+    else:
+        train_path = Path("/data/train.bin")
+        validation_path = Path("/data/validation.bin")
+
     train_dataset = TinyStoriesDataset(
-        Path("/data/train.bin"), block_size=model_config.context_length, random=True
+        train_path, block_size=model_config.context_length, random=True
     )
     validation_dataset = TinyStoriesDataset(
-        Path("/data/validation.bin"),
+        validation_path,
         block_size=model_config.context_length,
         random=False,
     )

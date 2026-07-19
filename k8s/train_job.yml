@@ -41,7 +41,7 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
         - |
-          uv run --no-sync main.py --model_config qwen3_mini --trainer_config mini
+          uv run --no-sync main.py --model_config qwen3_mini --trainer_config mini --location cluster
           EXIT_CODE=$?
           echo "Fixing permissions..."
           chown -R 28853:5455 /data

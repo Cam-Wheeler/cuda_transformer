@@ -43,7 +43,7 @@ def main():
 
     # Load in tokensier
     print("Loading Tokeniser...")
-    tokeniser = AutoTokenizer.from_pretrained("QWEN/Qwen3-0.6B", cache_dir="./cache")
+    tokeniser = AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B", cache_dir="./cache")
 
     # Load in dataset
     print("Loading TinyStories...")

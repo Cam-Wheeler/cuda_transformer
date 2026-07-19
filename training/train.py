@@ -46,7 +46,7 @@ class Trainer(object):
         self.train_dataloader = train_dataloader
         self.train_iter = iter(self.train_dataloader)
         self.val_dataloader = val_dataloader
-        
+
         # Main training setup
         self.gradient_accumulation_steps: int = config.gradient_accumulation_steps
         self.total_iterations: int = config.total_iterations
@@ -77,14 +77,14 @@ class Trainer(object):
             milestones=[self.warmup_iters],
         )
         self.eval_interval: int = config.eval_interval
-        
+
         # Resume logic
         self.resume: bool = config.resume
         if self.resume:
             # TODO: implement resume logic
             # perhaps we need to update the learning rate sceduler here.
             pass
-        
+
         # Logs and saving
         self.log_interval: int = config.log_interval
         self.root_save_path: Path = Path(config.root_save_path)
@@ -92,7 +92,7 @@ class Trainer(object):
         if self.wandb_log:
             self.entity = config.wandb_entity
             self.project = config.wandb_project
-        
+
         # Move that MF to device to go brrrrr.
         self.device: torch.device = config.device
         self.model.to(self.device)
@@ -158,7 +158,7 @@ class Trainer(object):
             "average_train_loss": train_loss / self.total_iterations,
             "average_validation_loss": (
                 validation_loss / validation_runs if validation_runs > 0 else None
-            )
+            ),
         }
 
     def _train_single(self) -> Dict[str, float]:
