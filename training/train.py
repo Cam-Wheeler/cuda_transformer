@@ -22,6 +22,7 @@ import wandb
 import torch
 from pathlib import Path
 from typing import Dict, Tuple, Iterator, Optional, Union
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
@@ -56,7 +57,9 @@ class Trainer(object):
             self.learning_rate * 0.1
         )  # should be ~= learning_rate/10 per Chinchilla
         self.optimiser = AdamW(
-            params=self.model.parameters(),
+            params=self._select_param_groups(
+                weight_decay=1e-1
+            ),  # Selective weight decay, ignore biases and norms.
             lr=self.learning_rate,
             betas=(config.beta1, config.beta2),
         )
@@ -119,6 +122,7 @@ class Trainer(object):
                 # Iterate through the mini-batch.
                 self.optimiser.zero_grad()
                 train_results = self._train_single()
+                clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.optimiser.step()
 
                 total_tokens_seen += train_results["tokens"]
@@ -255,3 +259,20 @@ class Trainer(object):
         }
         torch.save(checkpoint, path)
         print(f"saved checkpoint → {path}", flush=True)
+
+    def _select_param_groups(self, weight_decay: float = 1e-1):
+        """
+        Selects the param groups for the optimiser.
+        """
+        decay, no_decay = [], []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if name.endswith(".bias") or name.endswith(".scale"):
+                no_decay.append(param)
+            else:
+                decay.append(param)
+        return [
+            {"params": decay, "weight_decay": weight_decay},
+            {"params": no_decay, "weight_decay": 0.0},
+        ]
