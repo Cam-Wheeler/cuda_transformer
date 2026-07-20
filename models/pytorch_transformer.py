@@ -39,6 +39,7 @@ I also used several other resources to help me understand and build!
 - https://github.com/rasbt/LLMs-from-scratch/blob/main/ch05/11_qwen3/standalone-qwen3.ipynb
 """
 
+import math
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -66,11 +67,19 @@ class QWEN3(nn.Module):
     - Transformer blocks * num_layers
     - RMSNorm
     - LM head
+
+    Weight initialisation:
+    - Embedding layer: normal distribution with mean 0 and std 0.02
+    - Transformer blocks: normal distribution with mean 0 and std 0.02
+    - Linear layers: normal distribution with mean 0 and std 0.02
+    - If a layer is contributing back to the residual stream, we are going to scale the init by 1 / sqrt(2 * num_layers).
     """
 
     def __init__(self, config: Union[QWEN3_MINI_Config, QWEN3_06B_Config]):
         super().__init__()
         self.config = config
+
+        # Setup the layers.
         self.embedding_layer = nn.Embedding(config.vocab_size, config.embedding_dim)
         self.transformer_blocks = nn.ModuleList(
             [QWEN3Block(config) for _ in range(config.num_layers)]
@@ -81,14 +90,46 @@ class QWEN3(nn.Module):
             self.lm_head.proj.weight = (
                 self.embedding_layer.weight
             )  # Tie the embedding layer and head layer together.
+
+        # Setup the RoPE parameters.
         cos, sin = QWEN3RoPE.compute_rope_parameters(
             config.head_dim,
             max_context_len=config.context_length,
             # We will use the RoPE deafult for theta_base.
         )
+
+        # Initialise the weights and scale the weights that contribute back to the residual stream.
+        self.apply(self._init_weights)
+        self._scale_residual_stream_weights()
+
         # Register the buffers to torch (as currently cos and sin are on the cpu).
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
+
+    def _init_weights(self, module: nn.Module) -> None:
+        """
+        Initialise the weights of the model.
+        """
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        # If the layer is neither a linear nor an embedding, we don't need to initialise anything.
+
+    def _scale_residual_stream_weights(self) -> None:
+        """
+        Scale the weights that contribute back to the residual stream.
+        """
+
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Linear) and (
+                name.endswith("out_proj") or name.endswith("w3")
+            ):
+                module.weight.data *= 1 / math.sqrt(
+                    2 * self.config.num_layers
+                )  # Scale the weights!
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
