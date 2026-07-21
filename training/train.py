@@ -41,15 +41,18 @@ class Trainer(object):
         model: QWEN3,
         train_dataloader: DataLoader,
         val_dataloader: DataLoader,
+        gradient_accumulation_steps: int,
+        device: str,
     ) -> None:
         self.config = config
         self.model = model
         self.train_dataloader = train_dataloader
         self.train_iter = iter(self.train_dataloader)
         self.val_dataloader = val_dataloader
+        self.device = device
 
         # Main training setup
-        self.gradient_accumulation_steps: int = config.gradient_accumulation_steps
+        self.gradient_accumulation_steps: int = gradient_accumulation_steps
         self.total_iterations: int = config.total_iterations
         self.warmup_iters: int = config.warmup_iters
         self.learning_rate: float = config.learning_rate  # max learning rate
@@ -95,10 +98,6 @@ class Trainer(object):
         if self.wandb_log:
             self.entity = config.wandb_entity
             self.project = config.wandb_project
-
-        # Move that MF to device to go brrrrr.
-        self.device: torch.device = config.device
-        self.model.to(self.device)
 
     def train_end_to_end(self) -> Dict[str, int]:
         """
