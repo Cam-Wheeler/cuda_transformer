@@ -23,7 +23,7 @@ spec:
          fsGroup: 5455
       containers:
       - name: cpu-job
-        image: camwheeler135/qwen3_mini_train:v0.0.1
+        image: camwheeler135/qwen3_mini_train:v0.0.X # Replace with appropriate version number for the CPU job.
         imagePullPolicy: Always
         env:
         - name: WANDB_API_KEY

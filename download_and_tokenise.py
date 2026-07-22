@@ -39,7 +39,7 @@ def main():
     if args.location == "cluster":
         DATA_ROOT = Path("/data")
     else:
-        DATA_ROOT = Path(os.path.dirname(__file__) + "/" + "data")
+        DATA_ROOT = Path(__file__).parent / "data"
 
     # Load in tokensier
     print("Loading Tokeniser...")

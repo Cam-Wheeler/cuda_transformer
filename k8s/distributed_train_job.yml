@@ -1,8 +1,8 @@
-# Training job.
+# Distributed training job.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  generateName: wheeler-train-qwen-
+  generateName: wheeler-dist-train-qwen-
   labels:
     eidf/user: cwheeler-eidf220
     kueue.x-k8s.io/queue-name: eidf220ns-user-queue
@@ -25,7 +25,7 @@ spec:
          fsGroup: 5455
       containers:
       - name: train-qwen
-        image: camwheeler135/qwen3_mini_train:v0.0.X # Replace with appropriate version number.
+        image: camwheeler135/qwen3_mini_train:v0.0.4
         imagePullPolicy: Always
         env:
         - name: WANDB_API_KEY
@@ -41,7 +41,7 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
         - |
-          uv run --no-sync main.py --model_config qwen3_mini --trainer_config mini --location cluster
+          uv run --no-sync torchrun --nproc_per_node=4 main.py --model_config qwen3_mini --trainer_config mini --location cluster
           EXIT_CODE=$?
           echo "Fixing permissions..."
           chown -R 28853:5455 /data
@@ -49,11 +49,11 @@ spec:
           exit $EXIT_CODE
         resources:
           requests:
-           nvidia.com/gpu: 1
+           nvidia.com/gpu: 4
            cpu: 8
            memory: 32Gi
           limits:
-            nvidia.com/gpu: 1
+            nvidia.com/gpu: 4
             cpu: 8
             memory: 32Gi
         volumeMounts:
