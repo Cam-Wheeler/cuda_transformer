@@ -61,6 +61,7 @@ def main() -> int:
 
     # Configure the training environment for DDP or single process training.
     ddp, rank, local_rank, world_size, device = configure_training_environment()
+    print(f"rank={rank} local_rank={local_rank} world_size={world_size} device={device} ddp={ddp}", flush=True)
 
     try: # Once ddp is setup, we need to tear it down properly. 
         
@@ -122,7 +123,7 @@ def configure_training_environment() -> Tuple[bool, int, int, int, str]:  # ddp,
         return False, 0, 0, 1, "cuda:0"
     local_rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(local_rank)
-    dist.init_process_group(backend="nccl")
+    dist.init_process_group(backend="nccl", device_id=local_rank)
     world_size = dist.get_world_size()
     device = f"cuda:{local_rank}"
     return True, int(os.environ["RANK"]), local_rank, world_size, device

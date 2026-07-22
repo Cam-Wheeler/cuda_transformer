@@ -40,18 +40,18 @@ class MiniTrainerConfig(BaseModel):
     """
     Configuration for the tiny training run.
     """
-    total_iterations: int = 600
+    total_iterations: int = 60000
     batch_size: int = 4
-    gradient_accumulation_steps: int = 8
-    warmup_iters: int = 100
+    gradient_accumulation_steps: int = 4
+    warmup_iters: int = 3000 # 5% of the total iterations.
     learning_rate: float = 6e-4 # used in Kaparthy's nanogpt.
     beta1: float = 0.9
     beta2: float = 0.95
-    eval_interval: int = 100
+    eval_interval: int = 500
     resume: bool = False
     wandb_log: bool = True
     root_save_path: str = "/data/mini"
-    log_interval: int = 50
+    log_interval: int = 100
     wandb_entity: str = "camwheeler135-university-of-edinburgh"
     wandb_project: str = "cuda-transformer"
 
@@ -62,7 +62,7 @@ class StandardTrainerConfig(BaseModel):
     total_iterations: int = 600000 
     wandb_log: bool = True
     batch_size: int = 4
-    gradient_accumulation_steps: int = 8
+    gradient_accumulation_steps: int = 4
     warmup_iters: int = 1000
     learning_rate: float = 6e-4 # used in Kaparthy's nanogpt.
     beta1: float = 0.9

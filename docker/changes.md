@@ -4,4 +4,4 @@ v0.0.2 - Weight initialisation.
 
 v0.0.3 - Grad clipping and weight decay.
 
-v0.0.4 - DDP
+v0.0.4 - DDP with extended mini-run (60000 iterations)

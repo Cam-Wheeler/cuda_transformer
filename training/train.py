@@ -148,8 +148,6 @@ class Trainer(object):
                         self._save_checkpoint(
                             i, validation_results["loss"], total_tokens_seen
                         ) # Checkpoint at every eval.
-                    if self.ddp:
-                        dist.barrier() # Processes will wait while we eval on the master process.
 
                 # log:
                 if self.master_process and i % self.log_interval == 0:
@@ -158,8 +156,11 @@ class Trainer(object):
                         total_tokens_seen,
                         train_results,
                         validation_results,
-                        use_wandb=self.wandb_log,
-                    ) # no need for a barrier for logging.
+                        use_wandb=self.wandb_log
+                    )
+
+                if self.ddp and (i % self.eval_interval == 0 or i % self.log_interval == 0):
+                    dist.barrier() # blocks until we are done logging or checkpointing.
         finally:
             if self.master_process and self.wandb_log:
                 wandb.finish()
@@ -227,12 +228,15 @@ class Trainer(object):
         """
         Validates on the validation set a single time.
         """
-        self.model.eval()
+        # without this DDP will hang as its trying to broadcast buffers when other processes are waiting at barrier.
+        # this is only really an issue as we are just evaling on a single GPU (master process)
+        model = self.model.module if self.ddp else self.model 
+        model.eval()
         valid_loss = 0
         with torch.no_grad():
             for input, target in self.val_dataloader:
                 input, target = input.to(self.device), target.to(self.device)
-                logits = self.model(input)
+                logits = model(input) # use the model not self.model!
                 loss = F.cross_entropy(logits.flatten(0, 1), target.flatten())
                 valid_loss += loss.item()
         return {
