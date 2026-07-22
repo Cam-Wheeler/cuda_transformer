@@ -119,14 +119,18 @@ def configure_training_environment() -> Tuple[bool, int, int, int, str]:  # ddp,
     Configure the training environment for DDP or single process training.
     """
     ddp = int(os.environ.get("RANK", -1)) != -1  # Check if DDP is enabled.
+
+    # Single process training.
     if not ddp:
         return False, 0, 0, 1, "cuda:0"
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
-    dist.init_process_group(backend="nccl", device_id=local_rank)
-    world_size = dist.get_world_size()
-    device = f"cuda:{local_rank}"
-    return True, int(os.environ["RANK"]), local_rank, world_size, device
+    
+    #  Lets setup DDP! 
+    local_rank = int(os.environ["LOCAL_RANK"]) # GPU rank within the node.
+    torch.cuda.set_device(local_rank) # Set the device for the current process.
+    dist.init_process_group(backend="nccl", device_id=local_rank) # Initialize the process group.
+    world_size = dist.get_world_size() # Get the total number of processes.
+    device = f"cuda:{local_rank}" # Set the device for the current process.
+    return True, int(os.environ["RANK"]), local_rank, world_size, device # Return the DDP setup.
 
 def setup_seed(seed: int, ddp: bool, rank: int) -> None:
     """
