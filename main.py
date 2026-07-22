@@ -96,7 +96,10 @@ def main() -> int:
             model,
             train_dataloader,
             validation_dataloader,
-            gradient_accumulation_steps,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            ddp=ddp,
+            world_size=world_size,
+            master_process=master_process,
             device=device
         )
 
