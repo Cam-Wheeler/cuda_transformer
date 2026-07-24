@@ -9,7 +9,7 @@ CompileFlags:
 
   # Directory that contains compile_commands.json, or None when Nsight falls
   # back to generic CUDA flags.
-  CompilationDatabase: None
+  CompilationDatabase: .
 
   Add:
     # CUDA Toolkit selected for this workspace. These paths are explicit because

@@ -6,15 +6,14 @@ Code for calling the CUDA code from C++ Pytorch and binding to Python.
 The functions do their own input validation and convert the tensors
 into pointers so we can pass them over to CUDA.
 */
+#include "pybind11/detail/common.h"
 #include <torch/extension.h>
 
 // Declarations for the CUDA launch functions.
-
 void launch_fwd_add(const float* a, const float* b, float* out, int size);
 void launch_bwd_add(const float* grad_out, float* grad_a, float* grad_b, int size);
 void launch_fwd_multi(const float* a, const float* b, float* out, int size);
 void launch_bwd_multi(const float* grad_out, const float* a, const float* b, float* grad_a, float* grad_b, int size);
-
 
 // Pytorch C++ binding to the CUDA code.
 
@@ -76,4 +75,22 @@ void bwd_multi(torch::Tensor grad_out, torch::Tensor a, torch::Tensor b, torch::
                      grad_a.data_ptr<float>(),
                      grad_b.data_ptr<float>(),
                      grad_out.numel());
+}
+
+/*
+Now we bind to python!
+
+Very roughly:
+1. The preprocessor expands the PYBIND11_MODULE macro.
+2. Compiled down into machine code by the compiler generating the .so file 
+   full of inits (and the rest of our code).
+3. We import the .so file in Python. Python callables are registered by the inits.
+   The callables are then hooked to the wrappers around our C++ functions that Pybind generates.
+4. Wrappers handle the conversion from calling C++ and returning results.
+*/
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    m.def("fwd_add", &fwd_add, "Element-wise addition forward");
+    m.def("bwd_add", &bwd_add, "Element-wise addition backward");
+    m.def("fwd_multi", &fwd_multi, "Element-wise multiplication forward");
+    m.def("multi_bwd", &bwd_multi, "Element-wise multiplication backward");
 }
