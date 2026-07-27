@@ -25,6 +25,12 @@ void fwd_add(torch::Tensor a, torch::Tensor b, torch::Tensor out) {
     TORCH_CHECK(b.device().is_cuda(), "b must be a CUDA tensor");
     TORCH_CHECK(out.device().is_cuda(), "out must be a CUDA tensor");
     TORCH_CHECK(a.numel() == b.numel() && a.numel() == out.numel(), "tensor sizes must match");
+
+    // Contiguous
+    a = a.contiguous();
+    b = b.contiguous();
+    out = out.contiguous();
+
     // CUDA kernel launch!
     launch_fwd_add(a.data_ptr<float>(), b.data_ptr<float>(), out.data_ptr<float>(), a.numel());
 }
@@ -37,6 +43,12 @@ void bwd_add(torch::Tensor grad_out, torch::Tensor grad_a, torch::Tensor grad_b)
     TORCH_CHECK(grad_a.device().is_cuda(), "grad_a must be a CUDA tensor");
     TORCH_CHECK(grad_b.device().is_cuda(), "grad_b must be a CUDA tensor");
     TORCH_CHECK(grad_out.numel() == grad_a.numel() && grad_out.numel() == grad_b.numel(), "tensor sizes must match");
+
+    // Contiguous
+    grad_out = grad_out.contiguous();
+    grad_a = grad_a.contiguous();
+    grad_b = grad_b.contiguous();
+
     // CUDA kernel launch!
     launch_bwd_add(grad_out.data_ptr<float>(),
             grad_a.data_ptr<float>(),
@@ -52,6 +64,12 @@ void fwd_multi(torch::Tensor a, torch::Tensor b, torch::Tensor out) {
     TORCH_CHECK(b.device().is_cuda(), "b must be a CUDA tensor");
     TORCH_CHECK(out.device().is_cuda(), "out must be a CUDA tensor");
     TORCH_CHECK(a.numel() == b.numel() && a.numel() == out.numel(), "tensor sizes must match");
+
+    // Contiguous
+    a = a.contiguous();
+    b = b.contiguous();
+    out = out.contiguous();
+
     // CUDA kernel launch!
     launch_fwd_multi(a.data_ptr<float>(), b.data_ptr<float>(), out.data_ptr<float>(), a.numel());
 }
@@ -68,6 +86,14 @@ void bwd_multi(torch::Tensor grad_out, torch::Tensor a, torch::Tensor b, torch::
     TORCH_CHECK(grad_out.numel() == a.numel() && grad_out.numel() == b.numel() && 
                 grad_out.numel() == grad_a.numel() && grad_out.numel() == grad_b.numel(),
                 "tensor sizes must match");
+
+    // Contiguous
+    grad_out = grad_out.contiguous();
+    a = a.contiguous();
+    b = b.contiguous();
+    grad_a = grad_a.contiguous();
+    grad_b = grad_b.contiguous();
+
     // CUDA kernel launch!
     launch_bwd_multi(grad_out.data_ptr<float>(),
                      a.data_ptr<float>(),
@@ -92,5 +118,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fwd_add", &fwd_add, "Element-wise addition forward");
     m.def("bwd_add", &bwd_add, "Element-wise addition backward");
     m.def("fwd_multi", &fwd_multi, "Element-wise multiplication forward");
-    m.def("multi_bwd", &bwd_multi, "Element-wise multiplication backward");
+    m.def("bwd_multi", &bwd_multi, "Element-wise multiplication backward");
 }
