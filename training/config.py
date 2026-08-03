@@ -40,18 +40,18 @@ class MiniTrainerConfig(BaseModel):
     """
     Configuration for the tiny training run.
     """
-    total_iterations: int = 60000
+    total_iterations: int = 100
     batch_size: int = 4
     gradient_accumulation_steps: int = 4
-    warmup_iters: int = 3000 # 5% of the total iterations.
+    warmup_iters: int = 5 # 5% of the total iterations.
     learning_rate: float = 6e-4 # used in Kaparthy's nanogpt.
     beta1: float = 0.9
     beta2: float = 0.95
-    eval_interval: int = 500
+    eval_interval: int = 10
     resume: bool = False
     wandb_log: bool = True
-    root_save_path: str = "/data/mini"
-    log_interval: int = 100
+    root_save_path: str = "/data/mini_cuda"
+    log_interval: int = 10
     wandb_entity: str = "camwheeler135-university-of-edinburgh"
     wandb_project: str = "cuda-transformer"
 

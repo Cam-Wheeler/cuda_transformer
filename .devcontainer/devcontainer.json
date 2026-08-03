@@ -11,9 +11,11 @@
             "extensions": [
                 "ms-python.python",
                 "ms-vscode.cpptools",
-                "nvidia.nsight-vscode-edition"
+                "nvidia.nsight-vscode-edition",
+                "llvm-vs-code-extensions.vscode-clangd",
+                "albert.TabOut"
             ]
         }
     },
-    "postCreateCommand": "pip install uv && uv sync"
+    "postCreateCommand": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y clangd ninja-build && pip install uv && uv sync"
 }

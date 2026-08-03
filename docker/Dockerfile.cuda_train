@@ -1,0 +1,36 @@
+FROM nvidia/cuda:12.6.3-devel-ubuntu22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-dev git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+
+# Install torch from the CUDA wheel index
+ENV UV_TORCH_BACKEND=cu126
+
+# Install deps.
+RUN uv sync --no-dev --frozen --python 3.12
+
+# CUDA source code
+COPY cudasrc /app/cudasrc 
+
+# Setup the .so file.
+COPY setup.py /app/setup.py
+RUN uv run --no-sync python /app/setup.py build_ext --inplace
+
+# Python wrappers around C++
+COPY wrappers /app/wrappers
+
+# Training code
+COPY models /app/models
+COPY download_and_tokenise.py /app/download_and_tokenise.py
+COPY training /app/training
+COPY main.py /app/main.py
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Entrypoint will be set on K8s.

@@ -7,7 +7,7 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-*.so          # the compiled CUDA extensions
+*.so
 *.pyd
 
 # CUDA compilation cache

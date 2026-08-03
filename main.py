@@ -27,6 +27,7 @@ from training.config import (
 )
 from training.train import Trainer
 from models.pytorch_transformer import QWEN3
+from models.cuda_transformer import QWEN3CUDA
 from training.dataset import TinyStoriesDataset
 
 MODEL_CONFIGS = {
@@ -50,6 +51,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--location", type=str, required=True, choices=["local", "cluster"]
+    )
+    parser.add_argument(
+        "--cuda-backend", type=str, required=True, choices=["custom", "torch"]
     )
     parser.add_argument("--seed", type=int, default=1501)
 
@@ -86,7 +90,7 @@ def main() -> int:
         )
 
         # Setup the model
-        model = setup_model(model_config, ddp, local_rank, device)
+        model = setup_model(model_config, ddp, local_rank, device, args.cuda_backend) # Now we need to pass in if we want to use CUDA or Torch.
 
         # Setup the trainer
         gradient_accumulation_steps = update_gradient_accumulation_steps(
@@ -186,11 +190,16 @@ def setup_model(
     ddp: bool,
     local_rank: int,
     device: str,
-) -> QWEN3:
+    cuda_backend: str,
+) -> Union[QWEN3, QWEN3CUDA]:
     """
     Setup the model for DDP or single process training.
     """
-    model = QWEN3(model_config).to(device)
+    if cuda_backend == "custom":
+        model = QWEN3CUDA(model_config).to(device)
+    else:
+        model = QWEN3(model_config).to(device)
+
     if ddp:
         model = DDP(model, device_ids=[local_rank], output_device=local_rank)
     return model
