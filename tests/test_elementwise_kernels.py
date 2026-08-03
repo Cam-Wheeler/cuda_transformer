@@ -27,7 +27,7 @@ def pair(device):
 def broadcast_pair(device):
     """float32 tensors on CUDA for testing."""
     a = torch.randn(2, 8, 64, dtype=torch.float32, device=device)
-    b = torch.randn(1, 8, 64, dtype=torch.float32, device=device) # missing a batch to broadcast.
+    b = torch.randn(1, 8, 64, dtype=torch.float32, device=device)
     return a, b
 
 @pytest.fixture
