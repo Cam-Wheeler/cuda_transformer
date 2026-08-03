@@ -1,0 +1,62 @@
+# CUDA smoke test.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: wheeler-cuda-smoke-test
+  labels:
+    eidf/user: cwheeler-eidf220
+    kueue.x-k8s.io/queue-name: eidf220ns-user-queue
+    kueue.x-k8s.io/priority-class: batch-workload-priority
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 6000
+  template:
+    metadata:
+      labels:
+        eidf/user: cwheeler-eidf220
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.product: "NVIDIA-A100-SXM4-40GB"
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: cwheeler-data
+      securityContext:
+         fsGroup: 5455
+      containers:
+      - name: train-qwen
+        image: camwheeler135/cuda_train:v0.0.1 # Image for smoke testing CUDA training.
+        imagePullPolicy: Always
+        env:
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: qwen-training-secrets
+              key: wandb-api-key
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: qwen-training-secrets
+              key: hf-token
+        command: ["/bin/bash", "-c"]
+        args: # No DDP here, just basic.
+        - |
+          uv run --no-sync main.py --model_config qwen3_mini --trainer_config mini --location cluster --cuda-backend custom
+          EXIT_CODE=$?
+          echo "Fixing permissions..."
+          chown -R 28853:5455 /data
+          chmod -R 775 /data
+          exit $EXIT_CODE
+        resources:
+          requests:
+           nvidia.com/gpu: 1
+           cpu: 8
+           memory: 32Gi
+          limits:
+            nvidia.com/gpu: 1
+            cpu: 8
+            memory: 32Gi
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      restartPolicy: Never

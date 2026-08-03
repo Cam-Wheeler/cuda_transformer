@@ -16,8 +16,11 @@ from training.config import (
     QWEN3_06B_Config,
 )
 
+# CUDA wrappers.
+from wrappers.training import ElementWiseAdd, ElementWiseMultiplication
 
-class QWEN3(nn.Module):
+
+class QWEN3CUDA(nn.Module):
     """
     A QWEN-3 style transformer model.
     """
@@ -222,6 +225,7 @@ class QWEN3Block(nn.Module):
             hidden_dim=config.fnn_hidden_dim,
             bias=False,
         )
+        self.add = ElementWiseAdd() # Cuda wrapper for the addition between the residual and the output of the attention.
 
     def forward(
         self, x: torch.Tensor, mask: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
@@ -241,12 +245,12 @@ class QWEN3Block(nn.Module):
         residual = x  # [batch, seq_len, embed_dim]
         x = self.norm_1(x)
         x = self.group_query_attn(x, mask, cos, sin)  # [batch_size, seq_len, embed_dim]
-        x = x + residual  # Elementwise addition.
+        x = self.add(x, residual)  # Elementwise addition.
 
         residual = x
         x = self.norm_2(x)
         x = self.ffn(x)  # SwiGLU
-        x = x + residual
+        x = self.add(x, residual)  # Elementwise addition.
 
         return x
 
@@ -452,9 +456,10 @@ class QWEN3FFN(nn.Module):
         self.w1 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
         self.w2 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
         self.w3 = nn.Linear(hidden_dim, embedding_dim, bias=bias)
+        self.mul = ElementWiseMultiplication() # Cuda wrapper for the multi between the gate and linear.
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w3(F.silu(self.w1(x)) * self.w2(x))
+        return self.w3(self.mul(F.silu(self.w1(x)), self.w2(x)))
 
 
 class QWEN3LMHead(nn.Module):
