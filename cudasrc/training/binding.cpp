@@ -29,12 +29,12 @@ void fwd_add(torch::Tensor a, torch::Tensor b, torch::Tensor out) {
     TORCH_CHECK(a.device().is_cuda(), "a must be a CUDA tensor");
     TORCH_CHECK(b.device().is_cuda(), "b must be a CUDA tensor");
     TORCH_CHECK(out.device().is_cuda(), "out must be a CUDA tensor");
+    TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
     TORCH_CHECK(a.numel() == b.numel() && a.numel() == out.numel(), "tensor sizes must match");
 
     // Contiguous
     a = a.contiguous();
     b = b.contiguous();
-    out = out.contiguous();
 
     // CUDA kernel launch!
     launch_fwd_add(a.data_ptr<float>(), b.data_ptr<float>(), out.data_ptr<float>(), a.numel());
@@ -47,12 +47,12 @@ void bwd_add(torch::Tensor grad_out, torch::Tensor grad_a, torch::Tensor grad_b)
     TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
     TORCH_CHECK(grad_a.device().is_cuda(), "grad_a must be a CUDA tensor");
     TORCH_CHECK(grad_b.device().is_cuda(), "grad_b must be a CUDA tensor");
+    TORCH_CHECK(grad_a.is_contiguous(), "grad_a must be contiguous");
+    TORCH_CHECK(grad_b.is_contiguous(), "grad_b must be contiguous");
     TORCH_CHECK(grad_out.numel() == grad_a.numel() && grad_out.numel() == grad_b.numel(), "tensor sizes must match");
 
-    // Contiguous
+    // Contiguous for the reads. Writes should be contiguous already.
     grad_out = grad_out.contiguous();
-    grad_a = grad_a.contiguous();
-    grad_b = grad_b.contiguous();
 
     // CUDA kernel launch!
     launch_bwd_add(grad_out.data_ptr<float>(),
@@ -68,12 +68,12 @@ void fwd_multi(torch::Tensor a, torch::Tensor b, torch::Tensor out) {
     TORCH_CHECK(a.device().is_cuda(), "a must be a CUDA tensor");
     TORCH_CHECK(b.device().is_cuda(), "b must be a CUDA tensor");
     TORCH_CHECK(out.device().is_cuda(), "out must be a CUDA tensor");
+    TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
     TORCH_CHECK(a.numel() == b.numel() && a.numel() == out.numel(), "tensor sizes must match");
 
     // Contiguous
     a = a.contiguous();
     b = b.contiguous();
-    out = out.contiguous();
 
     // CUDA kernel launch!
     launch_fwd_multi(a.data_ptr<float>(), b.data_ptr<float>(), out.data_ptr<float>(), a.numel());
@@ -88,16 +88,16 @@ void bwd_multi(torch::Tensor grad_out, torch::Tensor a, torch::Tensor b, torch::
     TORCH_CHECK(b.device().is_cuda(), "b must be a CUDA tensor");
     TORCH_CHECK(grad_a.device().is_cuda(), "grad_a must be a CUDA tensor");
     TORCH_CHECK(grad_b.device().is_cuda(), "grad_b must be a CUDA tensor");
+    TORCH_CHECK(grad_a.is_contiguous(), "grad_a must be contiguous");
+    TORCH_CHECK(grad_b.is_contiguous(), "grad_b must be contiguous");
     TORCH_CHECK(grad_out.numel() == a.numel() && grad_out.numel() == b.numel() && 
                 grad_out.numel() == grad_a.numel() && grad_out.numel() == grad_b.numel(),
                 "tensor sizes must match");
 
-    // Contiguous
+    // Contiguous for the reads. Writes should be contiguous already.
     grad_out = grad_out.contiguous();
     a = a.contiguous();
     b = b.contiguous();
-    grad_a = grad_a.contiguous();
-    grad_b = grad_b.contiguous();
 
     // CUDA kernel launch!
     launch_bwd_multi(grad_out.data_ptr<float>(),
@@ -113,12 +113,12 @@ SiLU Forward pass.
 */
 void fwd_silu(torch::Tensor x, torch::Tensor out) {
     TORCH_CHECK(x.device().is_cuda(), "input to SiLU must be a CUDA tensor.");
-    TORCH_CHECK(out.device().is_cuda(), "out for SiLU must be a CUDA tensor.")
+    TORCH_CHECK(out.device().is_cuda(), "out for SiLU must be a CUDA tensor.");
+    TORCH_CHECK(out.is_contiguous(), "out for SiLU must be passed in as contiguous.");
     TORCH_CHECK(x.numel() == out.numel(), "tensor sizes to SilU must match.");
 
     // Contiguous
     x = x.contiguous();
-    out = out.contiguous();
 
     // Launch the kernel
     launch_silu_fwd(x.data_ptr<float>(), out.data_ptr<float>() , x.numel());
@@ -131,13 +131,13 @@ void bwd_silu(torch::Tensor grad_out, torch::Tensor x, torch::Tensor grad_in) {
     TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
     TORCH_CHECK(x.device().is_cuda(), "x must be a CUDA tensor");
     TORCH_CHECK(grad_in.device().is_cuda(), "grad_in must be a CUDA tensor");
+    TORCH_CHECK(grad_in.is_contiguous(), "grad_in must be contiguous");
     TORCH_CHECK(grad_out.numel() == x.numel() && grad_out.numel() == grad_in.numel(),
                 "tensor sizes to SilU must match.");
 
     // Contiguous
     grad_out = grad_out.contiguous();
     x = x.contiguous();
-    grad_in = grad_in.contiguous();
 
     // Launch the kernel
     launch_silu_bwd(grad_out.data_ptr<float>(),

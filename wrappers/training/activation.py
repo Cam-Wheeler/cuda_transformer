@@ -35,7 +35,9 @@ class SiLUFunction(Function):
         # Save the input for the backward pass.
         ctx.save_for_backward(x)
 
-        out = torch.empty_like(x)
+        # We need to ensure our out is contiguous.
+        out = torch.empty(x.shape, dtype=x.dtype, device=x.device)
+
         import custom_training as ct
         ct.fwd_silu(x, out)
         return out
@@ -48,8 +50,8 @@ class SiLUFunction(Function):
         # load the input back in
         x, = ctx.saved_tensors # Returns to us a tensor, so just need to unpack.
 
-        # Create the gradient tensor to fill.
-        grad_x = torch.empty_like(x)
+        # Create the gradient tensor to fill. Empty ensures contiguous.
+        grad_x = torch.empty(x.shape, dtype=x.dtype, device=x.device)
 
         import custom_training as ct
         ct.bwd_silu(grad_out, x, grad_x)
