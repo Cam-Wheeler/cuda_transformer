@@ -18,7 +18,8 @@ setup(
             name='custom_training',
             sources=[
                 str(SETUP_DIR / 'cudasrc' / 'training' / 'binding.cpp'),
-                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / "elementwise.cu"),
+                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'elementwise.cu'),
+                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'activation.cu')
             ],
             extra_compile_args={
                 "cxx": ["-g"],

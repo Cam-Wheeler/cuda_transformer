@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from training.config import QWEN3_MINI_Config
+
 from models.pytorch_transformer import (
     QWEN3,
     QWEN3Block,

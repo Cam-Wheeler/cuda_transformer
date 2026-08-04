@@ -45,7 +45,8 @@ class AdditionFunction(Function):
         ctx.a_broadcast_shape = a_broadcast.shape
         ctx.b_broadcast_shape = b_broadcast.shape
 
-        out = torch.empty_like(a_broadcast)
+        # Ensure contiguous
+        out = torch.empty(a_broadcast.shape, dtype=a_broadcast.dtype, device=a_broadcast.device)
 
         import custom_training as ct
         ct.fwd_add(a_broadcast, b_broadcast, out)
@@ -105,7 +106,8 @@ class MultiplicationFunction(Function):
         
         ctx.save_for_backward(a, b)
 
-        out = torch.empty_like(a)
+        # Ensure contiguous
+        out = torch.empty(a.shape, dtype=a.dtype, device=a.device)
 
         import custom_training as ct
         ct.fwd_multi(a, b, out)
@@ -120,8 +122,9 @@ class MultiplicationFunction(Function):
 
         a, b = ctx.saved_tensors
 
-        grad_a = torch.empty_like(a)
-        grad_b = torch.empty_like(b)
+        # Ensure contiguous
+        grad_a = torch.empty(a.shape, dtype=a.dtype, device=a.device)
+        grad_b = torch.empty(b.shape, dtype=b.dtype, device=b.device)
 
         import custom_training as ct
         ct.bwd_multi(grad_out, a, b, grad_a, grad_b)

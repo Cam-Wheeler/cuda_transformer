@@ -30,7 +30,7 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
         - |
-          uv run --no-sync pytest /app/tests/test_elementwise_kernels.py
+          uv run --no-sync pytest /app/tests/kernels
         resources:
           requests:
            nvidia.com/gpu: 1
