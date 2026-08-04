@@ -17,3 +17,5 @@ v0.0.2 - Refactor and tests for activation (silu).
 CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
+
+v0.0.2 - Smoke test with V1 + silu non-linear activation.

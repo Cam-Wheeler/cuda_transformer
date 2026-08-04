@@ -22,7 +22,9 @@ from training.config import (
 )
 
 # CUDA wrappers.
-from wrappers.training import ElementWiseAdd, ElementWiseMultiplication
+from wrappers.training import (
+    ElementWiseAdd, ElementWiseMultiplication, SiLU
+)
 
 class QWEN3CUDA(nn.Module):
     """
@@ -461,9 +463,10 @@ class QWEN3FFN(nn.Module):
         self.w2 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
         self.w3 = nn.Linear(hidden_dim, embedding_dim, bias=bias)
         self.mul = ElementWiseMultiplication() # Cuda wrapper for the multi between the gate and linear.
+        self.silu = SiLU() # Cuda wrapper for silu non-linear activation.
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w3(self.mul(F.silu(self.w1(x)), self.w2(x)))
+        return self.w3(self.mul(self.silu(self.w1(x)), self.w2(x)))
 
 
 class QWEN3LMHead(nn.Module):
