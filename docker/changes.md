@@ -12,6 +12,8 @@ Kernel Testing
 
 v0.0.1 - First tests for elementwise additions.
 
+v0.0.2 - Refactor and tests for activation (silu).
+
 CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
