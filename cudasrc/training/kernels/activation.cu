@@ -31,6 +31,9 @@ Backward pass kernel for SiLU.
 Derivative for SiLU:
     (1 + e^{-x} + x e^{-x}) / (1 + e^{-x})^2
 
+Stable SiLU formula:
+    SiLU'(x) = σ + x·σ·(1 - σ) where σ = 1 / (1 + e^{-x})
+    
 @param grad_out: The gradient coming into the node.
 @param x: The input for the forward pass.
 @param grad_in: The gradient for the input to the node.
@@ -41,10 +44,8 @@ __global__ void bwd_silu(const float* grad_out, const float* x, float* grad_in, 
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size) {
         float val = x[idx];
-        float neg_exp = expf(-val);
-        float numerator = 1.f + neg_exp + val * neg_exp;
-        float denominator = (1.f + neg_exp) * (1.f + neg_exp);
-        grad_in[idx] = grad_out[idx] * numerator / denominator;
+        float sigmoid = 1.f / (1.f + expf(-val));
+        grad_in[idx] = grad_out[idx] * (sigmoid + val * sigmoid * (1.f - sigmoid));
     }
 }
 
