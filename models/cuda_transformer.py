@@ -1,7 +1,8 @@
 """
 Copy of the working pytorch QWEN with CUDA kernels wired in.
 
-The idea is to implement a single kernel at a time, write it into the model and run smoke tests / profiling to ensure correctness.
+The idea is to implement a single kernel at a time, write it into the model and 
+run smoke tests / profiling to ensure correctness.
 
 Naive Kernels
 - Element-wise addition: Used inside Qwen-3 Block.
@@ -22,7 +23,6 @@ from training.config import (
 
 # CUDA wrappers.
 from wrappers.training import ElementWiseAdd, ElementWiseMultiplication
-
 
 class QWEN3CUDA(nn.Module):
     """

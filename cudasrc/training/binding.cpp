@@ -2,10 +2,13 @@
 Code for calling the CUDA code from C++ Pytorch and binding to Python.
 
 - Element wise operations (add and multiply) (V1).
+- Activation functions (SiLU) (V1).
 
 The functions do their own input validation and convert the tensors
 into pointers so we can pass them over to CUDA.
 */
+
+#include "c10/core/Device.h"
 #include "pybind11/detail/common.h"
 #include <torch/extension.h>
 
@@ -14,6 +17,8 @@ void launch_fwd_add(const float* a, const float* b, float* out, int size);
 void launch_bwd_add(const float* grad_out, float* grad_a, float* grad_b, int size);
 void launch_fwd_multi(const float* a, const float* b, float* out, int size);
 void launch_bwd_multi(const float* grad_out, const float* a, const float* b, float* grad_a, float* grad_b, int size);
+void launch_silu_fwd(const float* x, float* out, int size);
+void launch_silu_bwd(const float* grad_out, const float* x, float* grad_in, int size);
 
 // Pytorch C++ binding to the CUDA code.
 
@@ -104,6 +109,44 @@ void bwd_multi(torch::Tensor grad_out, torch::Tensor a, torch::Tensor b, torch::
 }
 
 /*
+SiLU Forward pass.
+*/
+void fwd_silu(torch::Tensor x, torch::Tensor out) {
+    TORCH_CHECK(x.device().is_cuda(), "input to SiLU must be a CUDA tensor.");
+    TORCH_CHECK(out.device().is_cuda(), "out for SiLU must be a CUDA tensor.")
+    TORCH_CHECK(x.numel() == out.numel(), "tensor sizes to SilU must match.");
+
+    // Contiguous
+    x = x.contiguous();
+    out = out.contiguous();
+
+    // Launch the kernel
+    launch_silu_fwd(x.data_ptr<float>(), out.data_ptr<float>() , x.numel());
+}
+
+/*
+SiLU Backward pass.
+*/
+void bwd_silu(torch::Tensor grad_out, torch::Tensor x, torch::Tensor grad_in) {
+    TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
+    TORCH_CHECK(x.device().is_cuda(), "x must be a CUDA tensor");
+    TORCH_CHECK(grad_in.device().is_cuda(), "grad_in must be a CUDA tensor");
+    TORCH_CHECK(grad_out.numel() == x.numel() && grad_out.numel() == grad_in.numel(),
+                "tensor sizes to SilU must match.");
+
+    // Contiguous
+    grad_out = grad_out.contiguous();
+    x = x.contiguous();
+    grad_in = grad_in.contiguous();
+
+    // Launch the kernel
+    launch_silu_bwd(grad_out.data_ptr<float>(),
+                    x.data_ptr<float>(),
+                    grad_in.data_ptr<float>(),
+                    grad_out.numel());
+}
+
+/*
 Now we bind to python!
 
 Very roughly:
@@ -119,4 +162,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("bwd_add", &bwd_add, "Element-wise addition backward");
     m.def("fwd_multi", &fwd_multi, "Element-wise multiplication forward");
     m.def("bwd_multi", &bwd_multi, "Element-wise multiplication backward");
+    m.def("fwd_silu", &fwd_silu, "SiLU forward");
+    m.def("bwd_silu", &bwd_silu, "SiLU backward");
 }
