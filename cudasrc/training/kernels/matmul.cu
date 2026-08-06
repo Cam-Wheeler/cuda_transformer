@@ -3,6 +3,7 @@ CUDA code for matrix multiply.
 Within QWEN we will be using this in the attention and FFN layers.
 */
 
+#include <__clang_cuda_builtin_vars.h>
 #include <cuda_runtime.h>
 
 /*
@@ -92,6 +93,52 @@ __global__ void bwd_matmul_b(const float* grad_out, const float* A, float* grad_
 }
 
 /*
+Forward pass for batched matrix multiplication used in attention.
+Computes Y[batch] = A[batch] * B[batch] in parallel!
+
+@param A: Input matrix A (batch size, M, K).
+@param B: Input matrix B (batch size, K, N).
+@param C: Input matrix C (out) (batch size, M, N)
+@param batch_size: The size of the batch.
+@param M: The number of rows in A and C.
+@param N: The number of cols in B.
+@param K: The number of cols in A and rows in B.
+*/
+__global__ void fwd_batched_matmul(const float* A, const float* B, float* C, int batch_size, int M, int N, int K) {
+
+    // Indexing
+    int batch = blockIdx.z; // batch idx (the slice in the 3D grid).
+    int row = blockIdx.y * blockDim.y + threadIdx.y; // The row within the batch.
+    int col = blockIdx.x * blockDim.x + threadIdx.x; // The column within the batch.
+
+    // Bounds checking
+    if (batch < batch_size && row < M && col < N) {
+        float sum = 0.f;
+        for (int k = 0; k < K; k++) {
+            // A[batch, row, idx within row], B[batch, idx within col, col]
+            sum += A[batch * M * K + row * K + k] * B[batch * K * N + k * N + col];
+        }
+        // Lets get that sum into C.
+        C[batch * M * N + row * N + col] = sum; // C[batch, row, col]
+    }
+}
+
+/*
+Backward pass for batched matmul to compute the gradients for A.
+*/
+__global__ void bwd_batched_matmul_a() {
+
+}
+
+/*
+Backward pass for batched matmul to compute gradients for B.
+*/
+__global__ void bwd_batched_matmul_b() {
+
+}
+
+
+/*
 Kernel launch for matmul.
 
 @param A: Input matrix A (M x K)
@@ -144,4 +191,18 @@ __host__ void launch_bwd_matmul(
         (K + threads_per_block_b.y - 1) / threads_per_block_b.y
     );
     bwd_matmul_b<<<blocks_b, threads_per_block_b>>>(grad_out, A, grad_b, M, N, K);
+}
+
+/*
+Kernel launch for the forward batched matmul.
+*/
+__host__ void launch_fwd_batched_matmul() {
+
+}
+
+/*
+Kernel launch for the backward pass for batched matmul.
+*/
+__host__ void launch_bwd_batched_matmul() {
+
 }
