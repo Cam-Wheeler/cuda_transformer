@@ -3,7 +3,6 @@ CUDA code for matrix multiply.
 Within QWEN we will be using this in the attention and FFN layers.
 */
 
-#include <__clang_cuda_builtin_vars.h>
 #include <cuda_runtime.h>
 
 /*
@@ -125,15 +124,44 @@ __global__ void fwd_batched_matmul(const float* A, const float* B, float* C, int
 
 /*
 Backward pass for batched matmul to compute the gradients for A.
-*/
-__global__ void bwd_batched_matmul_a() {
 
+@param grad_out: The gradients of the outputs (batch size, M, N)
+@param B: The input matrix B (batch size, K, N)
+@param grad_a: The gradients with respect to the input A (batch size, M, K)
+@param batch_size: The size of the batch.
+@param M: The number of rows in grad_out and grad_a.
+@param N: The number of columns in B and grad_out.
+@param K: The number of columns in A and rows in grad_b.
+*/
+__global__ void bwd_batched_matmul_a(const float* grad_out, const float* B, float* grad_a, int batch_size, int M, int N, int K) {
+
+    int batch = blockIdx.z; // batch idx (the slice in the 3D grid).
+    int row = blockIdx.y * blockDim.y + threadIdx.y; // row idx for grad_a
+    int col = blockIdx.x * blockDim.x + threadIdx.x; // col idx for grad_a
+
+    // Bounds checking
+    if (batch < batch_size & row < M && col < K) {
+        float sum = 0.f;
+        // Iterate through the row we want.
+        for (int n = 0; n < N; n ++) {
+            sum += grad_out[batch * M * N + row * N + n] * B[batch * K * N + col * N + n];
+        }
+        grad_a[batch * M * K + row * K + col] = sum;
+    }
 }
 
 /*
 Backward pass for batched matmul to compute gradients for B.
+
+@param grad_out: The gradients of the outputs (batch size, M, N)
+@param A: The input matrix A (batch size, M, K)
+@param grad_b: The gradients with respect to the input B (batch size, K, N)
+@param batch_size: The size of the batch.
+@param M: The number of rows in grad_out and A.
+@param N: The number of columns in grad_out and B.
+@param K: The number of columns in A and rows in grad_b.
 */
-__global__ void bwd_batched_matmul_b() {
+__global__ void bwd_batched_matmul_b(const float* grad_out, const float* A, float* grad_b, int batch_size, int M, int N, int K) {
 
 }
 
