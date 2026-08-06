@@ -3,6 +3,8 @@ Implementation of element-wise addition and multiplication.
 Main targets are the residual connections and FFN within QWEN.
 */
 
+#include <cuda_runtime.h>
+
 /*
 Forward pass kernel for element-wise addition.
 y[idx] = a[idx] + b[idx]

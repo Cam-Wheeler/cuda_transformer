@@ -6,6 +6,7 @@ the SwiGLU FFN.
 */
 
 #include <math.h>
+#include <cuda_runtime.h>
 
 /*
 Forward pass kernel for SiLU.
