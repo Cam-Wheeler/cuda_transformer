@@ -140,7 +140,7 @@ __global__ void bwd_batched_matmul_a(const float* grad_out, const float* B, floa
     int col = blockIdx.x * blockDim.x + threadIdx.x; // col idx for grad_a
 
     // Bounds checking
-    if (batch < batch_size & row < M && col < K) {
+    if (batch < batch_size && row < M && col < K) {
         float sum = 0.f;
         // Iterate through the row we want.
         for (int n = 0; n < N; n ++) {
@@ -162,7 +162,19 @@ Backward pass for batched matmul to compute gradients for B.
 @param K: The number of columns in A and rows in grad_b.
 */
 __global__ void bwd_batched_matmul_b(const float* grad_out, const float* A, float* grad_b, int batch_size, int M, int N, int K) {
+    
+    int batch = blockIdx.z;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
 
+    if (batch < batch_size && row < K && col < N) {
+        float sum = 0.f;
+        for (int m = 0; m < M; m++) {
+            // A[batch, :, row idx]
+            sum += A[batch * M * K + m * K + row] * grad_out[batch * M * N + m * N + col];
+        }
+        grad_b[batch * K * N + row * N + col] = sum;
+    }
 }
 
 
@@ -223,14 +235,63 @@ __host__ void launch_bwd_matmul(
 
 /*
 Kernel launch for the forward batched matmul.
+
+@param A: The input matrix A (batch size, M, K)
+@param B: The input matrix B (batch size, K, N)
+@param C: The output matrix C (batch size, M, N)
+@param batch_size: The size of the batch
+@param M: The number of rows in A and C
+@param N: The number of columns in B and C
+@param K: The number of columns in A and rows in B
 */
-__host__ void launch_fwd_batched_matmul() {
+__host__ void launch_fwd_batched_matmul(
+    const float* A, const float* B, float* C, int batch_size, int M, int N, int K
+) {
+    // Reduce the size of the blocks to account for the "slices" in the batch dimension.
+    dim3 threads_per_block(8, 8);
+    dim3 blocks(
+        (N + threads_per_block.x - 1) / threads_per_block.x,
+        (M + threads_per_block.y - 1) / threads_per_block.y,
+        batch_size
+    );
+    fwd_batched_matmul<<<blocks, threads_per_block>>>(A, B, C, batch_size, M, N, K);
 
 }
 
 /*
 Kernel launch for the backward pass for batched matmul.
-*/
-__host__ void launch_bwd_batched_matmul() {
 
+@param grad_out: The gradients of the outputs (batch size, M, N)
+@param A: The input matrix A (batch size, M, K)
+@param B: The input matrix B (batch size, K, N)
+@param grad_a: The gradients with respect to the input A (batch size, M, K)
+@param grad_b: The gradients with respect to the input B (batch size, K, N)
+@param batch_size: The size of the batch
+@param M: The number of rows in grad_out and A
+@param N: The number of columns in B and grad_out
+@param K: The number of columns in A and rows in grad_b
+*/
+__host__ void launch_bwd_batched_matmul(
+    const float* grad_out, const float* A, const float* B,
+    float* grad_a, float* grad_b, int batch_size, int M, int N, int K
+) {
+    // Compute the backward for A.
+    // Output is (batch size, M, K)
+    dim3 threads_per_block_a(8, 8);
+    dim3 blocks_a(
+        (K + threads_per_block_a.x - 1) / threads_per_block_a.x,
+        (M + threads_per_block_a.y - 1) / threads_per_block_a.y,
+        batch_size
+    );
+    bwd_batched_matmul_a<<<blocks_a, threads_per_block_a>>>(grad_out, B, grad_a, batch_size, M, N, K);
+
+    // Compute the backward for B.
+    // Output is (batch size, K, N) 
+    dim3 threads_per_block_b(8, 8);
+    dim3 blocks_b(  
+        (N + threads_per_block_b.x - 1) / threads_per_block_b.x,
+        (K + threads_per_block_b.y - 1) / threads_per_block_b.y,
+        batch_size
+    );
+    bwd_batched_matmul_b<<<blocks_b, threads_per_block_b>>>(grad_out, A, grad_b, batch_size, M, N, K);
 }
