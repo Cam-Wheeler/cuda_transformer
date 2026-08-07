@@ -346,13 +346,13 @@ class QWEN3GQAAttention(nn.Module):
         )
 
         # Weights for projections.
-        self.q_proj = nn.Linear(
+        self.q_proj = CustomLinear(
             self.input_dim, self.q_dim, bias=False, dtype=self.dtype
         )  # Project into q space. [input_dim, q_dim]
-        self.k_proj = nn.Linear(
+        self.k_proj = CustomLinear(
             self.input_dim, self.kv_dim, bias=False, dtype=self.dtype
         )  # Project into kv space. [input_dim, kv_dim]
-        self.v_proj = nn.Linear(
+        self.v_proj = CustomLinear(
             self.input_dim, self.kv_dim, bias=False, dtype=self.dtype
         )  # Project into kv space. [input_dim, kv_dim]
 
@@ -365,8 +365,10 @@ class QWEN3GQAAttention(nn.Module):
         # RoPE
         self.rope = QWEN3RoPE()  # No parameters needed!
 
+        self.bmm = BatchedMatMul() # Replaces @ in q @ k.t and attention_w @ values
+
         # Output projection
-        self.out_proj = nn.Linear(
+        self.out_proj = CustomLinear(
             self.q_dim, self.input_dim, bias=False, dtype=self.dtype
         )  # [q_dim, input_dim]
 
@@ -423,9 +425,15 @@ class QWEN3GQAAttention(nn.Module):
         values = values.repeat_interleave(self.kv_group_size, dim=1)
 
         # Attention babaaayyyyy!
+        B, H, S, D = queries.shape # batch, heads, seq_len, head_dim
+        q_cont = queries.contiguous().view(B * H, S, D) # make it 3D
+        k_t_cont = keys.transpose(-2, -1).contiguous().view(B * H, D, S) # Again 3D.
         attention_scores = (
-            queries @ keys.transpose(-2, -1)
-        )  # Transpose the seq_len, head_dim tensor, output is (batch_size, n_heads, seq_len, seq_len)
+            self.bmm(q_cont, k_t_cont) # [B * H, S, S]
+        )
+        # Now we map back to standard shapes! [batch, heads, seq_len, seq_len]
+        attention_scores = attention_scores.view(B, H, S, S)
+
         masked_scores = attention_scores.masked_fill(
             mask, -torch.inf
         )  # Mask out the future tokens.
@@ -433,13 +441,17 @@ class QWEN3GQAAttention(nn.Module):
             masked_scores / self.head_dim**0.5, dim=-1
         )  # Softmax over the columns (each row gets a softmax).
 
-        # Output
-        # We dot scaled and values making [batch_size, n_heads, seq_len, head_dim]
-        # Transpose the n_heads and seq_len dims, then reshape to [batch_size, seq_len, q_dim] (OG shape after projections).
+        # attention weights shape here is [batch, heads, seq_len, seq_len].
+        # Values shape here is [batch, heads, seq_len, dim].
+        B, H, S, _ = attention_weights.shape
+        _, _, _, D = values.shape
+        aw_cont = attention_weights.contiguous().view(B * H, S, S)
+        v_cont = values.contiguous().view(B * H, S, D)
         attention_output = (
-            (attention_weights @ values)
-            .transpose(1, 2)
-            .reshape(batch_size, seq_len, self.q_dim)
+            self.bmm(aw_cont, v_cont) # [B * H, S, D]
+            .view(B, H, S, D) # [B, H, S, D]
+            .transpose(1, 2) # [B, S, H, D]
+            .reshape(batch_size, seq_len, self.q_dim) # [B, S, H * D] where H * D = q_dim
         )
 
         # Output projection back to input dim, input shape to attention == output shape from attention.
@@ -458,13 +470,13 @@ class QWEN3FFNCUDA(nn.Module):
     - bias: Whether to use a bias term.
     """
 
-    def __init__(self, embedding_dim: int, hidden_dim: int, bias: bool = False):
+    def __init__(self, embedding_dim: int, hidden_dim: int, bias: bool = False, dtype=torch.float32):
         super().__init__()
         
         # Setup to use the kernels instead of nn.Linear...
-        self.w1 = CustomLinear(embedding_dim, hidden_dim, bias)
-        self.w2 = CustomLinear(embedding_dim, hidden_dim, bias)
-        self.w3 = CustomLinear(hidden_dim, embedding_dim, bias)
+        self.w1 = CustomLinear(embedding_dim, hidden_dim, bias, dtype)
+        self.w2 = CustomLinear(embedding_dim, hidden_dim, bias, dtype)
+        self.w3 = CustomLinear(hidden_dim, embedding_dim, bias, dtype)
         
         self.mul = ElementWiseMultiplication() # Cuda wrapper for the multi between the gate and linear.
         self.silu = SiLU() # Cuda wrapper for silu non-linear activation.
@@ -494,10 +506,10 @@ class CustomLinear(nn.Module):
     actually performing the matrix multiplication!
     """
 
-    def __init__(self, in_features, out_features, bias=False):
+    def __init__(self, in_features, out_features, bias=False, dtype=torch.float32):
         super().__init__()
-        self.weight = nn.Parameter(torch.zeros(out_features, in_features))
-        self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
+        self.weight = nn.Parameter(torch.zeros(out_features, in_features, dtype=dtype))
+        self.bias = nn.Parameter(torch.zeros(out_features, dtype=dtype)) if bias else None
         self.matmul = MatMul()
         self.add = ElementWiseAdd()
 

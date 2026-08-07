@@ -24,4 +24,6 @@ v0.0.2 - Smoke test with V1 + silu non-linear activation.
 
 v0.0.3 - Custom Linear in the FFN.
 
-v0.0.4 - Custom Linear in Attention. TODO
+v0.0.4 - Custom Linear in Attention.
+
+v0.0.5 - BMM in GQA. 
