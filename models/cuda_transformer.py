@@ -23,7 +23,7 @@ from training.config import (
 
 # CUDA wrappers.
 from wrappers.training import (
-    ElementWiseAdd, ElementWiseMultiplication, SiLU
+    ElementWiseAdd, ElementWiseMultiplication, SiLU, MatMul, BatchedMatMul
 )
 
 class QWEN3CUDA(nn.Module):
@@ -66,13 +66,14 @@ class QWEN3CUDA(nn.Module):
         """
         Initialise the weights of the model.
         """
-        if isinstance(module, nn.Linear):
+        # Now we need to account for custom linears as well as normal linears!
+        if isinstance(module, (nn.Linear, CustomLinear)):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        # If the layer is neither a linear nor an embedding, we don't need to initialise anything.
+        # If the layer is neither a linear/custom linear nor an embedding, we don't need to initialise anything.
 
     def _scale_residual_stream_weights(self) -> None:
         """
@@ -80,7 +81,7 @@ class QWEN3CUDA(nn.Module):
         """
 
         for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) and (
+            if isinstance(module, (nn.Linear, CustomLinear)) and (
                 name.endswith("out_proj") or name.endswith("w3")
             ):
                 module.weight.data *= 1 / math.sqrt(
@@ -226,7 +227,7 @@ class QWEN3Block(nn.Module):
             head_dim=config.head_dim,
         )
         self.norm_2 = QWEN3RMSNorm(config.embedding_dim)
-        self.ffn = QWEN3FFN(
+        self.ffn = QWEN3FFNCUDA(
             embedding_dim=config.embedding_dim,
             hidden_dim=config.fnn_hidden_dim,
             bias=False,
@@ -447,7 +448,7 @@ class QWEN3GQAAttention(nn.Module):
         )  # [batch_size, seq_len, q_dim] -> [batch_size, seq_len, embedding_dim]
 
 
-class QWEN3FFN(nn.Module):
+class QWEN3FFNCUDA(nn.Module):
     """
     Feed-Forward Network (FFN) using GLU with SiLU activation.
 
@@ -459,14 +460,18 @@ class QWEN3FFN(nn.Module):
 
     def __init__(self, embedding_dim: int, hidden_dim: int, bias: bool = False):
         super().__init__()
-        self.w1 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
-        self.w2 = nn.Linear(embedding_dim, hidden_dim, bias=bias)
-        self.w3 = nn.Linear(hidden_dim, embedding_dim, bias=bias)
+        
+        # Setup to use the kernels instead of nn.Linear...
+        self.w1 = CustomLinear(embedding_dim, hidden_dim, bias)
+        self.w2 = CustomLinear(embedding_dim, hidden_dim, bias)
+        self.w3 = CustomLinear(hidden_dim, embedding_dim, bias)
+        
         self.mul = ElementWiseMultiplication() # Cuda wrapper for the multi between the gate and linear.
         self.silu = SiLU() # Cuda wrapper for silu non-linear activation.
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.w3(self.mul(self.silu(self.w1(x)), self.w2(x)))
+        
 
 
 class QWEN3LMHead(nn.Module):
@@ -478,3 +483,51 @@ class QWEN3LMHead(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x)
+
+
+class CustomLinear(nn.Module):
+    """
+    Customised Linear Layer (Replicates Torches nn.Linear)
+
+    Used for standard matmuls. Stores weights like nn.Linear with 
+    (out_features, in_features) then performs the transpose when we are 
+    actually performing the matrix multiplication!
+    """
+
+    def __init__(self, in_features, out_features, bias=False):
+        super().__init__()
+        self.weight = nn.Parameter(torch.zeros(out_features, in_features))
+        self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
+        self.matmul = MatMul()
+        self.add = ElementWiseAdd()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
+        if x.dim() == 2:
+            x_cont = x.contiguous()
+            weight_t_cont = self.weight.t().contiguous()
+            x_out = self.matmul(x_cont, weight_t_cont)
+            if self.bias is not None:
+                # We need to unsqueeze the bias from [out_features,] to [1, out_features]
+                # so we can then broadcast for each row in the matrix [rows, out_features].
+                x_out = self.add(x_out, self.bias.unsqueeze(0))
+        else:
+
+            batch_size, seq_len, embedding_dim = x.shape
+            # Make it 2D by collapsing the batch and seq_len.
+            x_reshaped = x.contiguous().view(batch_size * seq_len, embedding_dim)
+            weight_t_cont = self.weight.t().contiguous()
+            # in = [batch * seq_len, embed_dim] and [in_features,  out_features] where embed_dim == in_features.
+            # out [batch * seq_len, out_features]
+            x_out = self.matmul(x_reshaped, weight_t_cont)
+            if self.bias is not None:
+                # So we need to place x_out back into its 3D shape before handing it back.
+                # bias = [out_features,] x_out = [batch, seq_len, out_features]
+                # unsqueeze bias so bias = [1, 1, out_features] and expand to match [batch_size, seq_len, out_features]
+                # broadcast that add.
+                bias_batch_expand = self.bias.unsqueeze(0).unsqueeze(0).expand(batch_size, seq_len, -1)
+                x_out = self.add(x_out.view(batch_size, seq_len, -1), bias_batch_expand).contiguous()
+            else:
+                x_out = x_out.view(batch_size, seq_len, -1).contiguous()
+        
+        return x_out
