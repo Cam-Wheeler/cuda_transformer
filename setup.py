@@ -19,7 +19,8 @@ setup(
             sources=[
                 str(SETUP_DIR / 'cudasrc' / 'training' / 'binding.cpp'),
                 str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'elementwise.cu'),
-                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'activation.cu')
+                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'activation.cu'),
+                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'matmul.cu')
             ],
             extra_compile_args={
                 "cxx": ["-g"],

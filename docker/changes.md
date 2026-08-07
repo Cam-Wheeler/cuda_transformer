@@ -14,8 +14,16 @@ v0.0.1 - First tests for elementwise additions.
 
 v0.0.2 - Refactor and tests for activation (silu).
 
+v0.0.3 - Added tests for matmul.
+
 CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
 
 v0.0.2 - Smoke test with V1 + silu non-linear activation.
+
+v0.0.3 - Custom Linear in the FFN.
+
+v0.0.4 - Custom Linear in Attention.
+
+v0.0.5 - BMM in GQA. 

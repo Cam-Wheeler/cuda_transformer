@@ -3,6 +3,7 @@ Code for calling the CUDA code from C++ Pytorch and binding to Python.
 
 - Element wise operations (add and multiply) (V1).
 - Activation functions (SiLU) (V1).
+- Matrix multi (single and batched) (V1).
 
 The functions do their own input validation and convert the tensors
 into pointers so we can pass them over to CUDA.
@@ -12,13 +13,17 @@ into pointers so we can pass them over to CUDA.
 #include "pybind11/detail/common.h"
 #include <torch/extension.h>
 
-// Declarations for the CUDA launch functions.
+// Prototypes for the CUDA launch functions.
 void launch_fwd_add(const float* a, const float* b, float* out, int size);
 void launch_bwd_add(const float* grad_out, float* grad_a, float* grad_b, int size);
 void launch_fwd_multi(const float* a, const float* b, float* out, int size);
 void launch_bwd_multi(const float* grad_out, const float* a, const float* b, float* grad_a, float* grad_b, int size);
 void launch_silu_fwd(const float* x, float* out, int size);
 void launch_silu_bwd(const float* grad_out, const float* x, float* grad_in, int size);
+void launch_fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K);
+void launch_bwd_matmul(const float* grad_out, const float* A, const float* B, float* grad_a, float* grad_b, int M, int N, int K);
+void launch_fwd_batched_matmul(const float* A, const float* B, float* C, int batch_size, int M, int N, int K);
+void launch_bwd_batched_matmul(const float* grad_out, const float* A, const float* B, float* grad_a, float* grad_b, int batch_size, int M, int N, int K);
 
 // Pytorch C++ binding to the CUDA code.
 
@@ -147,6 +152,148 @@ void bwd_silu(torch::Tensor grad_out, torch::Tensor x, torch::Tensor grad_in) {
 }
 
 /*
+Matmul forward pass.
+*/
+void fwd_matmul(torch::Tensor A, torch::Tensor B, torch::Tensor C) {
+    TORCH_CHECK(A.device().is_cuda(), "A must be a CUDA tensor");
+    TORCH_CHECK(B.device().is_cuda(), "B must be a CUDA tensor");
+    TORCH_CHECK(C.device().is_cuda(), "C must be a CUDA tensor");
+    TORCH_CHECK(A.dim() == 2 && B.dim() == 2 && C.dim() == 2, "A, B, and C must be 2D tensors");
+    TORCH_CHECK(C.is_contiguous(), "C must be contiguous");
+    TORCH_CHECK(A.size(1) == B.size(0) && A.size(0) == C.size(0) && B.size(1) == C.size(1), 
+                "tensor sizes must match");
+
+    // Contiguous for the reads. Writes should be contiguous already.
+    A = A.contiguous();
+    B = B.contiguous();
+
+    // Sizes for the kernel launch.
+    int M = A.size(0);
+    int N = B.size(1);
+    int K = A.size(1);
+
+    // CUDA kernel launch!
+    launch_fwd_matmul(A.data_ptr<float>(), B.data_ptr<float>(), C.data_ptr<float>(), M, N, K);
+}
+
+/*
+Matmul backward pass.
+*/
+void bwd_matmul(
+    torch::Tensor grad_out, torch::Tensor A, torch::Tensor B, 
+    torch::Tensor grad_a, torch::Tensor grad_b
+) {
+    TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
+    TORCH_CHECK(A.device().is_cuda(), "A must be a CUDA tensor");
+    TORCH_CHECK(B.device().is_cuda(), "B must be a CUDA tensor");
+    TORCH_CHECK(grad_a.device().is_cuda(), "grad_a must be a CUDA tensor");
+    TORCH_CHECK(grad_b.device().is_cuda(), "grad_b must be a CUDA tensor");
+    TORCH_CHECK(grad_a.is_contiguous(), "grad_a must be contiguous");
+    TORCH_CHECK(grad_b.is_contiguous(), "grad_b must be contiguous");
+    TORCH_CHECK(grad_out.dim() == 2 && A.dim() == 2 && B.dim() == 2 &&
+                grad_a.dim() == 2 && grad_b.dim() == 2,
+                "grad_out, A, B, grad_a, grad_b must be 2D");
+    TORCH_CHECK(grad_out.size(0) == A.size(0) && grad_out.size(0) == grad_a.size(0),
+                "M mismatch");
+    TORCH_CHECK(grad_out.size(1) == B.size(1) && grad_out.size(1) == grad_b.size(1),
+                "N mismatch");
+    TORCH_CHECK(A.size(1) == B.size(0) && A.size(1) == grad_a.size(1) &&
+                B.size(0) == grad_b.size(0),
+                "K mismatch");
+
+    // Contiguous for the reads. Writes should be contiguous already.
+    grad_out = grad_out.contiguous();
+    A = A.contiguous();
+    B = B.contiguous();
+
+    // Sizes for the kernel launch.
+    int M = A.size(0);
+    int N = B.size(1);
+    int K = A.size(1);
+
+    // CUDA kernel launch!
+    launch_bwd_matmul(
+        grad_out.data_ptr<float>(), A.data_ptr<float>(), B.data_ptr<float>(),
+        grad_a.data_ptr<float>(), grad_b.data_ptr<float>(), M, N, K
+    );
+}
+
+/*
+Batched matmul forward pass.
+*/
+void fwd_batched_matmul(torch::Tensor A, torch::Tensor B, torch::Tensor C) {
+    TORCH_CHECK(A.device().is_cuda(), "A must be a CUDA tensor");
+    TORCH_CHECK(B.device().is_cuda(), "B must be a CUDA tensor");
+    TORCH_CHECK(C.device().is_cuda(), "C must be a CUDA tensor");
+    TORCH_CHECK(C.is_contiguous(), "C must be contiguous");
+    TORCH_CHECK(A.dim() == 3 && B.dim() == 3 && C.dim() == 3, "A, B, and C must be 3D tensors");
+    TORCH_CHECK(A.size(0) == B.size(0) && A.size(0) == C.size(0), "batch sizes must match");
+    TORCH_CHECK(A.size(2) == B.size(1), "A's K must match B's K");
+    TORCH_CHECK(A.size(1) == C.size(1) && B.size(2) == C.size(2), "output shape must be (batch, M, N)");
+
+    // Contiguous for the reads. Writes should be contiguous already.
+    A = A.contiguous();
+    B = B.contiguous();
+
+    // Sizes for the kernel launch.
+    int batch_size = A.size(0);
+    int M = A.size(1);
+    int N = B.size(2);
+    int K = A.size(2);
+
+    // CUDA kernel launch!
+    launch_fwd_batched_matmul(
+        A.data_ptr<float>(), B.data_ptr<float>(), C.data_ptr<float>(),
+        batch_size, M, N, K
+    );
+}
+
+/*
+Batched matmul backward pass.
+*/
+void bwd_batched_matmul(torch::Tensor grad_out, torch::Tensor A, torch::Tensor B,
+    torch::Tensor grad_a, torch::Tensor grad_b
+) {
+    TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
+    TORCH_CHECK(A.device().is_cuda(), "A must be a CUDA tensor");
+    TORCH_CHECK(B.device().is_cuda(), "B must be a CUDA tensor");
+    TORCH_CHECK(grad_a.device().is_cuda(), "grad_a must be a CUDA tensor");
+    TORCH_CHECK(grad_b.device().is_cuda(), "grad_b must be a CUDA tensor");
+    TORCH_CHECK(grad_a.is_contiguous(), "grad_a must be contiguous");
+    TORCH_CHECK(grad_b.is_contiguous(), "grad_b must be contiguous");
+    TORCH_CHECK(grad_out.dim() == 3 && A.dim() == 3 && B.dim() == 3 &&
+                grad_a.dim() == 3 && grad_b.dim() == 3,
+                "grad_out, A, B, grad_a, grad_b must be 3D");
+    TORCH_CHECK(A.size(0) == B.size(0) && A.size(0) == grad_out.size(0) &&
+                A.size(0) == grad_a.size(0) && A.size(0) == grad_b.size(0),
+                "batch sizes must match");
+    TORCH_CHECK(grad_out.size(1) == A.size(1) && grad_out.size(1) == grad_a.size(1),
+                "M mismatch");
+    TORCH_CHECK(grad_out.size(2) == B.size(2) && grad_out.size(2) == grad_b.size(2),
+                "N mismatch");
+    TORCH_CHECK(A.size(2) == B.size(1) && A.size(2) == grad_a.size(2) &&
+                B.size(1) == grad_b.size(1),
+                "K mismatch");
+
+    // Contiguous for the reads. Writes should be contiguous already.
+    grad_out = grad_out.contiguous();
+    A = A.contiguous();
+    B = B.contiguous();
+
+    // Sizes for the kernel launch.
+    int batch_size = A.size(0);
+    int M = A.size(1);
+    int N = B.size(2);
+    int K = A.size(2);
+
+    // CUDA kernel launch!
+    launch_bwd_batched_matmul(
+        grad_out.data_ptr<float>(), A.data_ptr<float>(), B.data_ptr<float>(),
+        grad_a.data_ptr<float>(), grad_b.data_ptr<float>(), batch_size, M, N, K
+    );
+}
+
+/*
 Now we bind to python!
 
 Very roughly:
@@ -164,4 +311,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("bwd_multi", &bwd_multi, "Element-wise multiplication backward");
     m.def("fwd_silu", &fwd_silu, "SiLU forward");
     m.def("bwd_silu", &bwd_silu, "SiLU backward");
+    m.def("fwd_matmul", &fwd_matmul, "Matmul forward");
+    m.def("bwd_matmul", &bwd_matmul, "Matmul backward");
+    m.def("fwd_batched_matmul", &fwd_batched_matmul, "Batched matmul forward");
+    m.def("bwd_batched_matmul", &bwd_batched_matmul, "Batched matmul backward");
 }

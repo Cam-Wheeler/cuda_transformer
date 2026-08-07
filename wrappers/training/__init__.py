@@ -3,9 +3,13 @@ from .element_wise import (
     ElementWiseMultiplication,
 )
 from .activation import SiLU
+from .matmul import MatMul
+from .batched_matmul import BatchedMatMul
 
 __all__ = [
     "ElementWiseAdd",
     "ElementWiseMultiplication",
-    "SiLU"
+    "SiLU",
+    "MatMul",
+    "BatchedMatMul"
 ]
