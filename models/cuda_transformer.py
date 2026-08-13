@@ -10,12 +10,12 @@ Naive Kernels
 - SiLU Non-linear Activation: Used inside FFN. 
 - Matrix Multiplication: Used in Linear projections and GQA.
 - RMSNorm: Used to norm the residuals and the Q and K heads.
+- Softmax: Used in attention. 
 """
 
 import math
 import torch
 from torch import nn
-from torch.nn import functional as F
 from typing import Tuple, Union
 
 # Local imports
@@ -26,8 +26,8 @@ from training.config import (
 
 # CUDA wrappers.
 from wrappers.training import (
-    ElementWiseAdd, ElementWiseMultiplication, SiLU, MatMul, BatchedMatMul,
-    RMSNorm
+    ElementWiseAdd, ElementWiseMultiplication, SiLU, MatMul, 
+    BatchedMatMul, RMSNorm, Softmax
 )
 
 class QWEN3CUDA(nn.Module):
@@ -376,6 +376,9 @@ class QWEN3GQAAttention(nn.Module):
         # RoPE
         self.rope = QWEN3RoPE()  # No parameters needed!
 
+        # Softmax
+        self.softmax = Softmax()
+
         self.bmm = BatchedMatMul() # Replaces @ in q @ k.t and attention_w @ values
 
         # Output projection
@@ -442,24 +445,17 @@ class QWEN3GQAAttention(nn.Module):
         attention_scores = (
             self.bmm(q_cont, k_t_cont) # [B * H, S, S]
         )
-        # Now we map back to standard shapes! [batch, heads, seq_len, seq_len]
-        attention_scores = attention_scores.view(B, H, S, S)
-
         masked_scores = attention_scores.masked_fill(
             mask, -torch.inf
         )  # Mask out the future tokens.
-        attention_weights = F.softmax(
-            masked_scores / self.head_dim**0.5, dim=-1
-        )  # Softmax over the columns (each row gets a softmax).
 
-        # attention weights shape here is [batch, heads, seq_len, seq_len].
-        # Values shape here is [batch, heads, seq_len, dim].
-        B, H, S, _ = attention_weights.shape
-        _, _, _, D = values.shape
-        aw_cont = attention_weights.contiguous().view(B * H, S, S)
+        masked_scores = masked_scores / self.head_dim**0.5
+        attention_weights = self.softmax(masked_scores) # still [B * H, S, S] masked scores are already contig
+
         v_cont = values.contiguous().view(B * H, S, D)
+        
         attention_output = (
-            self.bmm(aw_cont, v_cont) # [B * H, S, D]
+            self.bmm(attention_weights, v_cont) # [B * H, S, D] attention weights are already contig
             .view(B, H, S, D) # [B, H, S, D]
             .transpose(1, 2) # [B, S, H, D]
             .reshape(batch_size, seq_len, self.q_dim) # [B, S, H * D] where H * D = q_dim

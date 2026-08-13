@@ -186,7 +186,7 @@ __host__ void launch_bwd_softmax(
 ) {
     dim3 blocks(batch_size, seq_len); 
     int threads_per_block = 256;
-    size_t shared_mem = threads_per_block * sizeof(float); // only one bit of shared mem needed here. 
+    size_t shared_mem = threads_per_block * sizeof(float); // No need for * 2 here, just the one chunk.
     bwd_softmax<<<blocks, threads_per_block, shared_mem>>>(
         grad_out, output_probs, grad_x, batch_size, seq_len, n_embed
     );

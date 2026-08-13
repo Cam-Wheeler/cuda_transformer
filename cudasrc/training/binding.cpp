@@ -400,7 +400,6 @@ void fwd_softmax(torch::Tensor x, torch::Tensor out) {
     launch_fwd_softmax(
         x.data_ptr<float>(), out.data_ptr<float>(), batch_size, seq_len, n_embed
     );
-
 }
 
 /*
