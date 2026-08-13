@@ -24,6 +24,8 @@ void launch_fwd_matmul(const float* A, const float* B, float* C, int M, int N, i
 void launch_bwd_matmul(const float* grad_out, const float* A, const float* B, float* grad_a, float* grad_b, int M, int N, int K);
 void launch_fwd_batched_matmul(const float* A, const float* B, float* C, int batch_size, int M, int N, int K);
 void launch_bwd_batched_matmul(const float* grad_out, const float* A, const float* B, float* grad_a, float* grad_b, int batch_size, int M, int N, int K);
+void launch_fwd_rmsnorm(const float* x, const float* gamma, float* out, float* inv_rms_out, int batch_size, int seq_len, int n_embed, float eps);
+void launch_bwd_rmsnorm(const float* grad_out, const float* x, const float* gamma, const float* inv_rms, float* grad_x, float* grad_gamma, int batch_size, int seq_len, int n_embed);
 
 // Pytorch C++ binding to the CUDA code.
 
@@ -294,6 +296,85 @@ void bwd_batched_matmul(torch::Tensor grad_out, torch::Tensor A, torch::Tensor B
 }
 
 /*
+RMSNorm forward pass.
+*/
+void fwd_rmsnorm(torch::Tensor x, torch::Tensor gamma, torch::Tensor out, torch::Tensor inv_rms_out, float eps) {
+    TORCH_CHECK(x.device().is_cuda(), "x must be a CUDA tensor");
+    TORCH_CHECK(gamma.device().is_cuda(), "gamma must be a CUDA tensor");
+    TORCH_CHECK(out.device().is_cuda(), "out must be a CUDA tensor");
+    TORCH_CHECK(inv_rms_out.device().is_cuda(), "inv_rms_out must be a CUDA tensor");
+    TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
+    TORCH_CHECK(inv_rms_out.is_contiguous(), "inv_rms_out must be contiguous");
+    TORCH_CHECK(x.dim() == 3 && gamma.dim() == 1 && out.dim() == 3 && inv_rms_out.dim() == 2,
+                "x must be 3D, gamma must be 1D, out must be 3D, inv_rms_out must be 2D");
+    TORCH_CHECK(gamma.size(0) == x.size(2), "gamma must match the embedding dimension of x");
+    TORCH_CHECK(out.size(0) == x.size(0) && out.size(1) == x.size(1) && out.size(2) == x.size(2),
+                "out must match the shape of x");
+    TORCH_CHECK(inv_rms_out.size(0) == x.size(0) && inv_rms_out.size(1) == x.size(1),
+                "inv_rms_out must match the shape of batch and sequence length of x");
+    TORCH_CHECK(eps > 0, "eps must be greater than 0");
+
+    // contiguous for the reads, writes should already be cont
+    x = x.contiguous();
+    gamma = gamma.contiguous();
+
+    // Sizes
+    int batch_size = x.size(0);
+    int seq_len = x.size(1);
+    int n_embed = x.size(2);
+
+    launch_fwd_rmsnorm(
+        x.data_ptr<float>(), gamma.data_ptr<float>(), out.data_ptr<float>(),
+        inv_rms_out.data_ptr<float>(), batch_size, seq_len, n_embed, eps);
+}
+
+/*
+RMSNorm backward pass.
+*/
+void bwd_rmsnorm(
+    torch::Tensor grad_out, torch::Tensor x, torch::Tensor gamma,
+    torch::Tensor inv_rms, torch::Tensor grad_x, torch::Tensor grad_gamma
+) {
+    TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
+    TORCH_CHECK(x.device().is_cuda(), "x must be a CUDA tensor");
+    TORCH_CHECK(gamma.device().is_cuda(), "gamma must be a CUDA tensor");
+    TORCH_CHECK(inv_rms.device().is_cuda(), "inv_rms must be a CUDA tensor");
+    TORCH_CHECK(grad_x.device().is_cuda(), "grad_x must be a CUDA tensor");
+    TORCH_CHECK(grad_gamma.device().is_cuda(), "grad_gamma must be a CUDA tensor");
+    TORCH_CHECK(grad_x.is_contiguous(), "grad_x must be contiguous");
+    TORCH_CHECK(grad_gamma.is_contiguous(), "grad_gamma must be contiguous");
+    TORCH_CHECK(grad_out.dim() == 3 && x.dim() == 3 && gamma.dim() == 1 && 
+                inv_rms.dim() == 2 && grad_x.dim() == 3 && grad_gamma.dim() == 1,
+                "grad_out, x, grad_x must be 3D, gamma, grad_gamma must be 1D, inv_rms must be 2D");
+    TORCH_CHECK(grad_out.size(0) == x.size(0) && grad_out.size(1) == x.size(1) && grad_out.size(2) == x.size(2),
+                "grad_out must match the shape of x");
+    TORCH_CHECK(x.size(0) == grad_x.size(0) && x.size(1) == grad_x.size(1) && x.size(2) == grad_x.size(2),
+                "grad_x must match the shape of x");
+    TORCH_CHECK(gamma.size(0) == grad_gamma.size(0),
+                "grad_gamma must match the shape of gamma");
+    TORCH_CHECK(inv_rms.size(0) == x.size(0) && inv_rms.size(1) == x.size(1),
+                "inv_rms must match the shape of x in batch and sequence length");
+    TORCH_CHECK (gamma.size(0) == x.size(2), "gamma must match the embedding dimension of x");
+
+    // contiguous for reads.
+    grad_out = grad_out.contiguous();
+    x = x.contiguous();
+    gamma = gamma.contiguous();
+    inv_rms = inv_rms.contiguous();
+
+    // Sizes
+    int batch_size = x.size(0);
+    int seq_len = x.size(1);
+    int n_embed = x.size(2);
+
+    launch_bwd_rmsnorm(
+        grad_out.data_ptr<float>(), x.data_ptr<float>(), gamma.data_ptr<float>(),
+        inv_rms.data_ptr<float>(), grad_x.data_ptr<float>(), grad_gamma.data_ptr<float>(),
+        batch_size, seq_len, n_embed
+    );
+}
+
+/*
 Now we bind to python!
 
 Very roughly:
@@ -315,4 +396,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("bwd_matmul", &bwd_matmul, "Matmul backward");
     m.def("fwd_batched_matmul", &fwd_batched_matmul, "Batched matmul forward");
     m.def("bwd_batched_matmul", &bwd_batched_matmul, "Batched matmul backward");
+    m.def("fwd_rmsnorm", &fwd_rmsnorm, "RMSNorm forward");
+    m.def("bwd_rmsnorm", &bwd_rmsnorm, "RMSNorm backward");
 }
