@@ -13,6 +13,9 @@ dist/
 # CUDA compilation cache
 .cache/
 
+# compile commands
+compile_commands.json
+
 # Checkpoints - too large for git
 checkpoints/
 
@@ -27,4 +30,4 @@ cache/
 .DS_Store
 
 # Pytest
-.pytest_cache/
+.pytest_cache
