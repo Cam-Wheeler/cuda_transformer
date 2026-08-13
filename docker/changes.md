@@ -28,4 +28,6 @@ v0.0.3 - Custom Linear in the FFN.
 
 v0.0.4 - Custom Linear in Attention.
 
-v0.0.5 - BMM in GQA. 
+v0.0.5 - BMM in GQA.
+
+v0.0.6 - RMSNorm

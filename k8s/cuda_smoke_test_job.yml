@@ -25,7 +25,7 @@ spec:
          fsGroup: 5455
       containers:
       - name: train-qwen
-        image: camwheeler135/cuda_train:v0.0.1 # Image for smoke testing CUDA training, replace version as required!
+        image: camwheeler135/cuda_train:v0.0.X # Image for smoke testing CUDA training, replace version as required!
         imagePullPolicy: Always
         env:
         - name: WANDB_API_KEY
