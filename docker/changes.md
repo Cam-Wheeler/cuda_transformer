@@ -16,6 +16,8 @@ v0.0.2 - Refactor and tests for activation (silu).
 
 v0.0.3 - Added tests for matmul.
 
+v0.0.4 - Added tests for rmsnorm.
+
 CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
