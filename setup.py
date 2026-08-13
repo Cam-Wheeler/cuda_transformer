@@ -21,7 +21,8 @@ setup(
                 str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'elementwise.cu'),
                 str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'activation.cu'),
                 str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'matmul.cu'),
-                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'rmsnorm.cu')
+                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'rmsnorm.cu'),
+                str(SETUP_DIR / 'cudasrc' / 'training' / 'kernels' / 'softmax.cu')
             ],
             extra_compile_args={
                 "cxx": ["-g"],

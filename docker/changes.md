@@ -18,6 +18,8 @@ v0.0.3 - Added tests for matmul.
 
 v0.0.4 - Added tests for rmsnorm.
 
+v0.0.5 - Added tests for softmax
+
 CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
@@ -31,3 +33,5 @@ v0.0.4 - Custom Linear in Attention.
 v0.0.5 - BMM in GQA.
 
 v0.0.6 - RMSNorm
+
+v0.0.7 - Softmax
