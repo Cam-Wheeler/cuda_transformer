@@ -21,8 +21,8 @@ Each block will handle a single row in the matrix!
 /*
 Softmax forward kernel
 
-@param x Input logits (batch_size × seq_len × n_embed)
-@param out Output probabilities (batch_size × seq_len × n_embed)
+@param x: Input logits (batch_size × seq_len × n_embed)
+@param out: Output probabilities (batch_size × seq_len × n_embed)
 @param batch_size: Batch size
 @param seq_len: The length of the sequence
 @param n_embed: The size of the embeddings (in attention this is also seq len)
@@ -91,9 +91,61 @@ __global__ void fwd_softmax(const float* x, float* out, int batch_size, int seq_
 
 /*
 Softmax backward kernel
+
+Formula:
+    y = output val, g = gradient wrt output
+    s = sum(y * g) across the row.
+    grad_x = y[i] * (g[i] - s)
+
+@param grad_out: The gradient with respect to the outputs (batch_size x seq_len x n_embed)
+@param output_probs: output_probabilities (batch_size × seq_len × n_embed)
+@param grad_x: Gradients with respect to the inputs (batch_size × seq_len × n_embed)
+@param batch_size: Batch size
+@param seq_len: The length of the sequence
+@param n_embed: The size of the embeddings (in attention this is also seq len)
 */
-__global__ void bwd_softmax () {
-   
+__global__ void bwd_softmax (
+    const float* grad_out, const float* output_probs, 
+    float* grad_x, int batch_size, int seq_len, int n_embed
+) {
+
+    // Indexes
+    int b_idx = blockIdx.x;
+    int seq_idx = blockIdx.y;
+    int thread_idx = threadIdx.x;
+
+    // Shared memory
+    extern __shared__ float shared_mem[];
+    float* row_sum = shared_mem;
+
+    if (b_idx < batch_size && seq_idx < seq_len) {
+        
+        // first lets grab the sums for the row
+        float local_sum = 0.f;
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            local_sum += output_probs[idx] * grad_out[idx];
+        }
+        row_sum[thread_idx] = local_sum;
+        __syncthreads();
+
+        // Tree reduce it down to get the total sum for that row.
+        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+            if (thread_idx < stride) {
+                row_sum[thread_idx] += row_sum[thread_idx + stride];
+            }
+            __syncthreads();
+        }
+        
+        // grab the row sum to use in the gradient wrt input compute.
+        float global_row_sum = row_sum[0];
+
+        // Compute the grad wrt input.
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            grad_x[idx] = output_probs[idx] * (grad_out[idx] - global_row_sum);
+        }
+    }
 }
 
 /*
@@ -120,7 +172,22 @@ __host__ void launch_fwd_softmax(
 
 /*
 Bwd softmax kernel launch
-*/
-__host__ void launch_bwd_softmax() {
 
+@param grad_out: The gradient with respect to the outputs (batch_size x seq_len x n_embed)
+@param output_probs: output_probabilities (batch_size × seq_len × n_embed)
+@param grad_x: Gradients with respect to the inputs (batch_size × seq_len × n_embed)
+@param batch_size: Batch size
+@param seq_len: The length of the sequence
+@param n_embed: The size of the embeddings (in attention this is also seq len)
+*/
+__host__ void launch_bwd_softmax(
+    const float* grad_out, const float* output_probs, 
+    float* grad_x, int batch_size, int seq_len, int n_embed
+) {
+    dim3 blocks(batch_size, seq_len); 
+    int threads_per_block = 256;
+    size_t shared_mem = threads_per_block * sizeof(float); // only one bit of shared mem needed here. 
+    bwd_softmax<<<blocks, threads_per_block, shared_mem>>>(
+        grad_out, output_probs, grad_x, batch_size, seq_len, n_embed
+    );
 }
