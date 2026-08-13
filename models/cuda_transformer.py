@@ -7,6 +7,9 @@ run smoke tests / profiling to ensure correctness.
 Naive Kernels
 - Element-wise addition: Used inside Qwen-3 Block.
 - Element-wise multiplication: Used inside Qwen-3 FFN.
+- SiLU Non-linear Activation: Used inside FFN. 
+- Matrix Multiplication: Used in Linear projections and GQA.
+- RMSNorm: Used to norm the residuals and the Q and K heads.
 """
 
 import math
@@ -271,7 +274,6 @@ class QWEN3RMSNormCUDA(nn.Module):
     Arguments:
     - hidden_dim: The dimension of the hidden layer.
     - eps: The epsilon value for the normalisation.
-    - bias: Whether to use a bias term.
     - fp32_stability: Whether to use fp32 stability (hf code uses this)
         https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py
     """

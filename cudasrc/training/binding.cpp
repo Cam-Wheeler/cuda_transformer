@@ -4,6 +4,7 @@ Code for calling the CUDA code from C++ Pytorch and binding to Python.
 - Element wise operations (add and multiply) (V1).
 - Activation functions (SiLU) (V1).
 - Matrix multi (single and batched) (V1).
+- RMSNorm (V1)
 
 The functions do their own input validation and convert the tensors
 into pointers so we can pass them over to CUDA.
@@ -354,7 +355,7 @@ void bwd_rmsnorm(
                 "grad_gamma must match the shape of gamma");
     TORCH_CHECK(inv_rms.size(0) == x.size(0) && inv_rms.size(1) == x.size(1),
                 "inv_rms must match the shape of x in batch and sequence length");
-    TORCH_CHECK (gamma.size(0) == x.size(2), "gamma must match the embedding dimension of x");
+    TORCH_CHECK(gamma.size(0) == x.size(2), "gamma must match the embedding dimension of x");
 
     // contiguous for reads.
     grad_out = grad_out.contiguous();
