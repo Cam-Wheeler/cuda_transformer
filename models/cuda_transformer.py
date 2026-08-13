@@ -7,6 +7,9 @@ run smoke tests / profiling to ensure correctness.
 Naive Kernels
 - Element-wise addition: Used inside Qwen-3 Block.
 - Element-wise multiplication: Used inside Qwen-3 FFN.
+- SiLU Non-linear Activation: Used inside FFN. 
+- Matrix Multiplication: Used in Linear projections and GQA.
+- RMSNorm: Used to norm the residuals and the Q and K heads.
 """
 
 import math
@@ -23,7 +26,8 @@ from training.config import (
 
 # CUDA wrappers.
 from wrappers.training import (
-    ElementWiseAdd, ElementWiseMultiplication, SiLU, MatMul, BatchedMatMul
+    ElementWiseAdd, ElementWiseMultiplication, SiLU, MatMul, BatchedMatMul,
+    RMSNorm
 )
 
 class QWEN3CUDA(nn.Module):
@@ -40,7 +44,7 @@ class QWEN3CUDA(nn.Module):
         self.transformer_blocks = nn.ModuleList(
             [QWEN3Block(config) for _ in range(config.num_layers)]
         )
-        self.norm = QWEN3RMSNorm(config.embedding_dim)
+        self.norm = QWEN3RMSNormCUDA(config.embedding_dim)
         self.lm_head = QWEN3LMHead(config.embedding_dim, config.vocab_size)
         if config.tie_embeddings:
             self.lm_head.proj.weight = (
@@ -219,14 +223,14 @@ class QWEN3Block(nn.Module):
 
     def __init__(self, config: Union[QWEN3_MINI_Config, QWEN3_06B_Config]) -> None:
         super().__init__()
-        self.norm_1 = QWEN3RMSNorm(config.embedding_dim)
+        self.norm_1 = QWEN3RMSNormCUDA(config.embedding_dim)
         self.group_query_attn = QWEN3GQAAttention(
             input_dim=config.embedding_dim,
             num_q_heads=config.num_q_heads,
             num_kv_heads=config.num_kv_heads,
             head_dim=config.head_dim,
         )
-        self.norm_2 = QWEN3RMSNorm(config.embedding_dim)
+        self.norm_2 = QWEN3RMSNormCUDA(config.embedding_dim)
         self.ffn = QWEN3FFNCUDA(
             embedding_dim=config.embedding_dim,
             hidden_dim=config.fnn_hidden_dim,
@@ -262,14 +266,14 @@ class QWEN3Block(nn.Module):
         return x
 
 
-class QWEN3RMSNorm(nn.Module):
+class QWEN3RMSNormCUDA(nn.Module):
     """
-    Root Mean Square Normalisation (RMSNorm)
+    Root Mean Square Normalisation (RMSNorm) using the custom CUDA
+    RMSNorm kernel
 
     Arguments:
     - hidden_dim: The dimension of the hidden layer.
     - eps: The epsilon value for the normalisation.
-    - bias: Whether to use a bias term.
     - fp32_stability: Whether to use fp32 stability (hf code uses this)
         https://github.com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling_qwen3.py
     """
@@ -281,20 +285,27 @@ class QWEN3RMSNorm(nn.Module):
         self.scale = nn.Parameter(torch.ones(hidden_dim))  # g in the paper.
         self.epsilon = eps
         self.fp32_stability = fp32_stability
+        self.rms_norm = RMSNorm()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        original_type = x.dtype
-        if self.fp32_stability:  # HF always cast for stability.
+        
+        og_type = x.dtype
+        if self.fp32_stability:
             x = x.to(torch.float32)
-        mean_squared = x.pow(2).mean(
-            -1, keepdim=True
-        )  # We grab the means across the rows (tokens).
-        sqrt_norm = x * torch.rsqrt(
-            mean_squared + self.epsilon
-        )  # Now we take the rsqrt (not sqrt) and add epsilon.
-        scaled = sqrt_norm * self.scale  # Now we scale the input.
-        return scaled.type(original_type)
 
+        q_k = False
+        if x.dim() == 4: # This means we are working with Q/K matrices
+            q_k = True
+            batch_size, n_heads, seq_len, n_embed = x.shape
+            x = x.contiguous().view(batch_size * n_heads, seq_len, n_embed)
+        
+        # If its not 4D then it must be 3D no need to reshape
+        x_out = self.rms_norm(x, self.scale, self.epsilon)
+
+        if q_k:
+            x_out = x_out.view(batch_size, n_heads, seq_len, n_embed)
+
+        return x_out.type(og_type)
 
 class QWEN3GQAAttention(nn.Module):
     """
@@ -357,10 +368,10 @@ class QWEN3GQAAttention(nn.Module):
         )  # Project into kv space. [input_dim, kv_dim]
 
         # QK-Norm
-        self.q_norm = QWEN3RMSNorm(
+        self.q_norm = QWEN3RMSNormCUDA(
             self.head_dim
         )  # We have a parameter for the head dimension.
-        self.k_norm = QWEN3RMSNorm(self.head_dim)  # ^^^^^^^
+        self.k_norm = QWEN3RMSNormCUDA(self.head_dim)  # ^^^^^^^
 
         # RoPE
         self.rope = QWEN3RoPE()  # No parameters needed!

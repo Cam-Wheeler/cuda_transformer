@@ -1,0 +1,264 @@
+/*
+RMSNorm Kernel.
+
+RMSNorm: a_i = (a_i / RMS(a)) * g where:
+    RMS(a) = sqrt{1/ n \sum{a_i^2}}
+*/
+
+#include <cuda_runtime.h>
+
+/*
+Forward pass for RMSNorm
+
+RMSNorm formula: a_i = (a_i / RMS(a)) * g where:
+    RMS(a) = sqrt{1/ n \sum{a_i^2}}
+
+    So the code does the following:
+    1. Sum the squares of each feature in the token vector.
+    2. Take the mean of that value.
+    3. Computing the inverse square root.
+    4. Normalise each element in the vector by the inverse square root
+    5. Multiply by gamma.
+
+@param x: The input tensor (batch_size, seq_len, n_embed)
+@param gamma: The gamma tensor (n_embed)
+@param out: The output tensor (batch_size, seq_len, n_embed)
+@param inv_rms_out: The inverse RMS tensor for backward pass (batch_size, seq_len)
+@param batch_size: The number of sequences in the batch.
+@param seq_len: The number of tokens in the sequence.
+@param n_embed: The number of features in the embedding.
+@param eps: The epsilon value for numerical stability.
+*/
+__global__ void fwd_rmsnorm(
+    const float* x, const float* gamma,
+    float* out, float* inv_rms_out,
+    int batch_size, int seq_len, int n_embed, float eps
+) {
+
+    // Indexes
+    int b_idx = blockIdx.x;
+    int seq_idx = blockIdx.y;
+    int thread_idx = threadIdx.x;
+
+    // Shared memory
+    extern __shared__ float shared_mem[];
+    float* sum_sq_vals = shared_mem; // Stored the partial sum of squares for the token.
+
+    // Compute the partial sum of squares.
+    if (b_idx < batch_size && seq_idx < seq_len) {
+        float local_sum_sq = 0.f;
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) { // jump blockdim each time.
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            local_sum_sq += x[idx] * x[idx]; // square each element.
+        }
+        sum_sq_vals[thread_idx] = local_sum_sq; // index into smem using the thread idx.
+
+        // We need to be sure that the threads are all done before moving to the reduce.
+        __syncthreads();
+
+        // Now we need to reduce the partial sums into a single sum
+        // We are using a tree reduce here.
+        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+            if (thread_idx < stride) {
+                sum_sq_vals[thread_idx] += sum_sq_vals[thread_idx + stride];
+            }
+            __syncthreads(); // Ensure all are done doing their reduce before reducing more.
+        }
+
+        // Compute the mean of the sum of squares. It will be sat at idx[0] in smem.
+        float total_sum_sq = sum_sq_vals[0];
+        float mean_sum_sq = total_sum_sq / n_embed;
+        float inv_rms = rsqrtf(mean_sum_sq + eps);
+
+        // Save the inv_rms for backward pass.
+        if (thread_idx == 0) {
+            int inv_rms_idx = b_idx * seq_len + seq_idx; // one value per token per sequence per batch.
+            inv_rms_out[inv_rms_idx] = inv_rms;
+        }
+
+        // Normalise
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            float normalised = (x[idx] * inv_rms);
+            out[idx] = normalised * gamma[i];
+        }
+    }
+}
+
+
+/*
+Backward pass for RMSNorm
+
+This kernel handles the backward for the inputs the RMSNorm.
+
+Equation for computing the grad with respect to the inputs:
+    grad_x = inv_rms[token_idx] * (γ[feature_idx] * grad_out[idx] - normalised * token_mean)
+    where token_mean is:
+    token_mean = mean(γ * grad_out * normalised) so we compute over n_embed, per token
+
+@param grad_out: The gradient with respect to the output (batch_size * seq_len * n_embed).
+@param x: The input tensor (batch_size * seq_len * n_embed).
+@param gamma: The scale parameters for the RMSNorm (n_embed).
+@param inv_rms: The inverse root mean squared (batch_size * seq_len).
+@param grad_x: The gradient with respect to the input (batch_size * seq_len * n_embed).
+@param batch_size: The number of batches.
+@param seq_len: The length of the sequences in the batch (same across batches).
+@param n_embed: The number of features in the embedding.
+*/
+__global__ void bwd_rmsnorm_inputs(
+    const float* grad_out, const float* x, 
+    const float* gamma, const float* inv_rms,
+    float* grad_x, int batch_size, int seq_len, int n_embed
+) {
+
+
+    // Indexes and shared mem
+    int b_idx = blockIdx.x;
+    int seq_idx = blockIdx.y;
+    int thread_idx = threadIdx.x;
+
+    extern __shared__ float shared_mem[];
+    float* token_sum = shared_mem;
+
+    // check we are good to work with the thread
+    if (b_idx < batch_size && seq_idx < seq_len){
+
+        // Grab the inv_rms to compute normalised value
+        int inv_rms_idx = b_idx * seq_len + seq_idx;
+        float inv_rms_val = inv_rms[inv_rms_idx];
+
+        // Init shared mem.
+        if (thread_idx == 0) {
+            token_sum[0] = 0.f;
+        }
+        __syncthreads();
+
+        float local_sum = 0.f;
+        // Compute the partial sum per thread
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            float normalised = x[idx] * inv_rms_val;
+            local_sum += gamma[i] * grad_out[idx] * normalised;
+        }
+
+        // Atomically add the partial sum to smem.
+        atomicAdd(&token_sum[0], local_sum);
+        __syncthreads();
+
+        // Compute the gradient with respect to the input x
+        // Write to grad_x.
+        float token_mean = token_sum[0] / n_embed;
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            float normalised = x[idx] * inv_rms_val;
+            grad_x[idx] = inv_rms_val * (gamma[i] * grad_out[idx] - normalised * token_mean);
+        }
+    }
+}
+
+
+/*
+Backward pass for RMSNorm
+
+This kernel handles the backward for the parameters of RMSNorm (gammas)
+
+The equation for computing the grad with respect to the parameters:
+    grad_gamma[i] = sum_{b,s}(grad_out[b,s,i] * normalised[b,s,i])
+    normalised = x * inv_rms
+    so we are taking each feature across the batch and sequences and summing them up
+    multiplied by their respective normalised val. 
+
+@param grad_out: The gradient with respect to the output (batch_size * seq_len * n_embed).
+@param x: The input tensor (batch_size * seq_len * n_embed).
+@param inv_rms: The inverse root mean squared (batch_size * seq_len).
+@param grad_gamma: The gradient with respect to the gamma parameters (n_embed).
+@param batch_size: The number of batches.
+@param seq_len: The length of the sequences in the batch (same across batches).
+@param n_embed: The number of features in the embedding.
+*/
+__global__ void bwd_rmsnorm_parameters(
+    const float* grad_out, const float* x, const float* inv_rms,
+    float* grad_gamma, int batch_size, int seq_len, int n_embed
+) {
+
+    // Indexes
+    int b_idx = blockIdx.x;
+    int seq_idx = blockIdx.y;
+    int thread_idx = threadIdx.x; // This is what we will use to index into gamma.
+
+    // Bounds check that we are able to work.
+    if (b_idx < batch_size && seq_idx < seq_len) {
+        
+        // Grab the idx for the inv_rms
+        int inv_rms_idx = b_idx * seq_len + seq_idx;
+
+        // Now loop through the token vector updating the gamma grad as we go.
+        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
+            float normalised = x[idx] * inv_rms[inv_rms_idx];
+            atomicAdd(&grad_gamma[i], grad_out[idx] * normalised);
+        }
+    }
+}
+
+
+/*
+Kernel launch for RMSNorm forward.
+
+@param x: The input tensor (batch_size, seq_len, n_embed)
+@param gamma: The gamma tensor (n_embed)
+@param out: The output tensor (batch_size, seq_len, n_embed)
+@param inv_rms_out: The inverse RMS tensor for backward pass (batch_size, seq_len)
+@param batch_size: The number of sequences in the batch.
+@param seq_len: The number of tokens in the sequence.
+@param n_embed: The number of features in the embedding.
+@param eps: The epsilon value for numerical stability.
+*/
+__host__ void launch_fwd_rmsnorm(
+    const float* x, const float* gamma,
+    float* out, float* inv_rms_out,
+    int batch_size, int seq_len, int n_embed, float eps
+) {
+    int threads_per_block = 256;
+    dim3 blocks(batch_size, seq_len);
+    size_t smem = threads_per_block * sizeof(float); // This will hold a partial sum of squares.
+    fwd_rmsnorm<<<blocks, threads_per_block, smem>>>(
+        x, gamma, out, inv_rms_out, batch_size, seq_len, n_embed, eps
+    );
+}
+
+/*
+Kernel launch for RMSNorm backward, launches both the bwd wrt x and bwd wrt gamma.
+
+@param grad_out: The gradient with respect to the output (batch_size * seq_len * n_embed).
+@param x: The input tensor (batch_size * seq_len * n_embed).
+@param gamma: The scale parameters for the RMSNorm (n_embed).
+@param inv_rms: The inverse root mean squared (batch_size * seq_len).
+@param grad_x: The gradient with respect to the input (batch_size * seq_len * n_embed).
+@param grad_gamma: The gradient with respect to the gamma parameters (n_embed).
+@param batch_size: The number of batches.
+@param seq_len: The length of the sequences in the batch (same across batches).
+@param n_embed: The number of features in the embedding.
+*/
+__host__ void launch_bwd_rmsnorm(
+    const float* grad_out, const float* x, const float* gamma, const float* inv_rms,
+    float* grad_x, float* grad_gamma, int batch_size, int seq_len, int n_embed
+) {
+    // zero init gamma grads
+    cudaMemset(grad_gamma, 0, n_embed * sizeof(float));
+
+    // Launch bwd wrt input grad kernel.
+    dim3 blocks_inputs(batch_size, seq_len);
+    int threads_per_block_inputs = 256;
+    size_t shared_mem_inputs = 1 * sizeof(float); // Each block gets its own smem to accumulate to!
+    bwd_rmsnorm_inputs<<<blocks_inputs, threads_per_block_inputs, shared_mem_inputs>>>(
+        grad_out, x, gamma, inv_rms, grad_x, batch_size, seq_len, n_embed
+    );
+
+    // Launch bwd wrt gamma grad kernel
+    dim3 blocks_gamma(batch_size, seq_len);
+    int threads_per_block_gamma = 256;
+    bwd_rmsnorm_parameters<<<blocks_gamma, threads_per_block_gamma>>>(
+        grad_out, x, inv_rms, grad_gamma, batch_size, seq_len, n_embed
+    );
+}

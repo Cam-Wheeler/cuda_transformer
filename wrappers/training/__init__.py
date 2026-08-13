@@ -5,11 +5,13 @@ from .element_wise import (
 from .activation import SiLU
 from .matmul import MatMul
 from .batched_matmul import BatchedMatMul
+from .rmsnorm import RMSNorm
 
 __all__ = [
     "ElementWiseAdd",
     "ElementWiseMultiplication",
     "SiLU",
     "MatMul",
-    "BatchedMatMul"
+    "BatchedMatMul",
+    "RMSNorm"
 ]
