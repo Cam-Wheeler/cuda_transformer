@@ -5,6 +5,7 @@ Code for calling the CUDA code from C++ Pytorch and binding to Python.
 - Activation functions (SiLU) (V1).
 - Matrix multi (single and batched) (V1).
 - RMSNorm (V1)
+- Softmax (V1)
 
 The functions do their own input validation and convert the tensors
 into pointers so we can pass them over to CUDA.
@@ -27,6 +28,8 @@ void launch_fwd_batched_matmul(const float* A, const float* B, float* C, int bat
 void launch_bwd_batched_matmul(const float* grad_out, const float* A, const float* B, float* grad_a, float* grad_b, int batch_size, int M, int N, int K);
 void launch_fwd_rmsnorm(const float* x, const float* gamma, float* out, float* inv_rms_out, int batch_size, int seq_len, int n_embed, float eps);
 void launch_bwd_rmsnorm(const float* grad_out, const float* x, const float* gamma, const float* inv_rms, float* grad_x, float* grad_gamma, int batch_size, int seq_len, int n_embed);
+void launch_fwd_softmax(const float* x, float* out, int batch_size, int seq_len, int n_embed);
+void launch_bwd_softmax(const float* grad_out, const float* output_probs, float* grad_x, int batch_size, int seq_len, int n_embed);
 
 // Pytorch C++ binding to the CUDA code.
 
@@ -376,6 +379,62 @@ void bwd_rmsnorm(
 }
 
 /*
+Softmax forward pass.
+*/
+void fwd_softmax(torch::Tensor x, torch::Tensor out) {
+    TORCH_CHECK(x.device().is_cuda(), "x must be a CUDA tensor");
+    TORCH_CHECK(out.device().is_cuda(), "out must be a CUDA tensor");
+    TORCH_CHECK(out.is_contiguous(), "out must be contiguous");
+    TORCH_CHECK(x.dim() == 3 && out.dim() == 3, "x and out must be 3D tensors");
+    TORCH_CHECK(x.size(0) == out.size(0) && x.size(1) == out.size(1) && x.size(2) == out.size(2),
+                "x and out must have the same shape");
+
+    // Contig for reads, writes will be contig already.
+    x = x.contiguous();
+
+    // Sizes
+    int batch_size = x.size(0);
+    int seq_len = x.size(1);
+    int n_embed = x.size(2);
+
+    launch_fwd_softmax(
+        x.data_ptr<float>(), out.data_ptr<float>(), batch_size, seq_len, n_embed
+    );
+
+}
+
+/*
+Softmax backward pass.
+*/
+void bwd_softmax(torch::Tensor grad_out, torch::Tensor output_probs, torch::Tensor grad_x) {
+    TORCH_CHECK(grad_out.device().is_cuda(), "grad_out must be a CUDA tensor");
+    TORCH_CHECK(output_probs.device().is_cuda(), "output_probs must be a CUDA tensor");
+    TORCH_CHECK(grad_x.device().is_cuda(), "grad_x must be a CUDA tensor");
+    TORCH_CHECK(grad_x.is_contiguous(), "grad_x must be contiguous");
+    TORCH_CHECK(grad_out.dim() == 3 && output_probs.dim() == 3 && grad_x.dim() == 3,
+                "grad_out, output_probs, grad_x must be 3D tensors");
+    TORCH_CHECK(grad_out.size(0) == output_probs.size(0) && grad_out.size(1) == output_probs.size(1) && grad_out.size(2) == output_probs.size(2),
+                "grad_out must match the shape of output_probs");
+    TORCH_CHECK(grad_x.size(0) == grad_out.size(0) && grad_x.size(1) == grad_out.size(1) && grad_x.size(2) == grad_out.size(2),
+                "grad_x must match the shape of grad_out");
+
+    // Contig for reads, writes contig already.
+    grad_out = grad_out.contiguous();
+    output_probs = output_probs.contiguous();
+
+    // Sizes
+    int batch_size = grad_out.size(0);
+    int seq_len = grad_out.size(1);
+    int n_embed = grad_out.size(2);
+
+    launch_bwd_softmax(
+        grad_out.data_ptr<float>(), output_probs.data_ptr<float>(),
+        grad_x.data_ptr<float>(), batch_size, seq_len, n_embed
+    );
+}
+
+
+/*
 Now we bind to python!
 
 Very roughly:
@@ -399,4 +458,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("bwd_batched_matmul", &bwd_batched_matmul, "Batched matmul backward");
     m.def("fwd_rmsnorm", &fwd_rmsnorm, "RMSNorm forward");
     m.def("bwd_rmsnorm", &bwd_rmsnorm, "RMSNorm backward");
+    m.def("fwd_softmax", &fwd_softmax, "Softmax forward");
+    m.def("bwd_softmax", &bwd_softmax, "Softmax backward");
 }
