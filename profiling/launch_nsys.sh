@@ -17,7 +17,7 @@ mkdir -p "$(dirname "$OUT")"
 # Lets profile! 
 nsys profile \
   -o "$OUT" \
-  --force-overwrite true \
+  --force-overwrite=true \
   --trace=cuda,nvtx \
   --capture-range=cudaProfilerApi \
   --capture-range-end=stop \
