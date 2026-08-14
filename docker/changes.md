@@ -35,3 +35,7 @@ v0.0.5 - BMM in GQA.
 v0.0.6 - RMSNorm
 
 v0.0.7 - Softmax
+
+Profiling Layer 0
+
+v0.0.1 - Matmul and Batched Matmul
