@@ -1,4 +1,4 @@
-QWEN PyTorch Training
+### QWEN PyTorch Training
 
 v0.0.1 - First smoke test.
 
@@ -8,7 +8,7 @@ v0.0.3 - Grad clipping and weight decay.
 
 v0.0.4 - DDP with extended mini-run (60000 iterations)
 
-Kernel Testing
+### Kernel Testing
 
 v0.0.1 - First tests for elementwise additions.
 
@@ -20,7 +20,7 @@ v0.0.4 - Added tests for rmsnorm.
 
 v0.0.5 - Added tests for softmax
 
-CUDA Smoke Tests
+### CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
 
@@ -35,3 +35,13 @@ v0.0.5 - BMM in GQA.
 v0.0.6 - RMSNorm
 
 v0.0.7 - Softmax
+
+### Profiling Layer 0
+
+v0.0.1 - Matmul and Batched Matmul
+
+v0.0.2 - Elementwise add and multi
+
+v0.0.3 - Softmax
+
+v0.0.4 - RMSNorm
