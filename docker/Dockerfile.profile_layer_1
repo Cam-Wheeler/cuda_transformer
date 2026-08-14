@@ -1,0 +1,45 @@
+FROM nvidia/cuda:12.6.3-devel-ubuntu22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-dev git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+
+# Install torch from the CUDA wheel index
+ENV UV_TORCH_BACKEND=cu126
+
+# Install nsys
+RUN apt-get update && apt-get install -y --no-install-recommends gnupg \
+    && echo "deb https://developer.download.nvidia.com/devtools/repos/ubuntu2204/$(dpkg --print-architecture) /" \
+      > /etc/apt/sources.list.d/nvidia-devtools.list \
+    && apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nsight-systems-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the venv and install deps.
+RUN uv sync --no-dev --frozen --python 3.12
+
+# CUDA source code
+COPY cudasrc /app/cudasrc 
+
+# Handle the setup so we compile on image build
+# This will insert the .so file into the image.
+COPY setup.py /app/setup.py
+RUN uv run python /app/setup.py build_ext --inplace
+
+# Python wrappers around C++
+COPY wrappers /app/wrappers
+
+# Profiling code, import layer 1 into /app.
+COPY profiling/setup_kernels.py /app/setup_kernels.py
+COPY profiling/layer_1_bench.py /app/layer_1_bench.py
+COPY profiling/launch_nsys.sh /app/launch_nsys.sh
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Entrypoint will be set on K8s.
