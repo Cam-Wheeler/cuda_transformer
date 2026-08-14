@@ -6,9 +6,12 @@ Reports latency (ms), throughput (TFLOPS or GB/s), and slowdown.
 """
 
 import torch
+from torch.nn import functional as F
 from argparse import ArgumentParser
-from wrappers.training import BatchedMatMul, ElementWiseAdd, ElementWiseMultiplication, MatMul
-
+from wrappers.training import (
+    BatchedMatMul, ElementWiseAdd, ElementWiseMultiplication, 
+    MatMul, RMSNorm, Softmax
+)
 
 def setup_matmul():
     """FFN up-projection shape: [B*S, E] @ [E, H]."""
@@ -71,7 +74,6 @@ def setup_elementwise_add():
         "shape": f"({BATCH}, {SEQ_LEN}, {EMBED_DIM}) + ({BATCH}, {SEQ_LEN}, {EMBED_DIM})"
     }
 
-
 def setup_elementwise_multi():
     """
     Elementwise multiplication shape: 
@@ -94,14 +96,51 @@ def setup_elementwise_multi():
         "shape": f"({BATCH}, {SEQ_LEN}, {EMBED_DIM}) * ({BATCH}, {SEQ_LEN}, {EMBED_DIM})"
     }
 
+def setup_rms_norm():
+    """RMSNorm Shape: [Batch * Seq_len * Embedding]"""
+
+    BATCH = 4
+    SEQ_LEN = 256
+    EMBED_DIM = 1024
+    A = torch.randn(BATCH, SEQ_LEN, EMBED_DIM, device="cuda")
+    gamma = torch.ones(EMBED_DIM, device="cuda")
+    epsilon = 1e-6
+    op = RMSNorm()
+
+    return {
+        "cuda": lambda: op(A, gamma, epsilon),
+        "torch": lambda: F.rms_norm(A, (EMBED_DIM,), weight=gamma, eps=epsilon),
+        "flops": None,
+        "bytes": 2 * A.numel() * 4 + gamma.numel() * 4,
+        "shape": f"({BATCH}, {SEQ_LEN}, {EMBED_DIM})"
+    }
+
+def setup_softmax():
+    """Softmax shape: [batch_size, seq_len, seq_len]"""
+
+    BATCH = 4
+    HEADS = 16
+    SEQ_LEN = 256
+    A = torch.randn(BATCH * HEADS, SEQ_LEN, SEQ_LEN, device="cuda")
+    op = Softmax()
+
+    return {
+        "cuda": lambda: op(A),
+        "torch": lambda: F.softmax(A, dim=-1),
+        "flops": None, 
+        "bytes": 2 * A.numel() * 4,
+        "shape": f"({BATCH * HEADS}, {SEQ_LEN}, {SEQ_LEN})"
+    }
+
 # Allow us to setup the kernels.
 KERNELS = {
     "matmul": setup_matmul,
     "batch_matmul": setup_batch_matmul,
     "addition": setup_elementwise_add,
-    "multi": setup_elementwise_multi
+    "multi": setup_elementwise_multi,
+    "softmax": setup_softmax,
+    "rmsnorm": setup_rms_norm
 }
-
 
 def benchmark_kernel(kernel, warmup=50, iterations=250):
     """
@@ -129,12 +168,10 @@ def benchmark_kernel(kernel, warmup=50, iterations=250):
     mean_ms = sum(times) / len(times)
     return mean_ms, times
 
-
 def _std(values):
     mean = sum(values) / len(values)
     var = sum((v - mean) ** 2 for v in values) / len(values)
     return var ** 0.5
-
 
 def _throughput(mean_ms, flops, nbytes):
     if flops is not None:
@@ -142,7 +179,6 @@ def _throughput(mean_ms, flops, nbytes):
     if nbytes is not None:
         return nbytes / mean_ms / 1e6, "GB/s"
     return None, None
-
 
 def main():
     parser = ArgumentParser()
