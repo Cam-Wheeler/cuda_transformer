@@ -31,3 +31,9 @@ cache/
 
 # Pytest
 .pytest_cache
+
+# Nsys
+*.nsys-rep
+*.qdstrm
+*.ncu-rep
+*.sqlite
