@@ -7,7 +7,7 @@ Reports latency (ms), throughput (TFLOPS or GB/s), and slowdown.
 
 import torch
 from argparse import ArgumentParser
-from wrappers.training import BatchedMatMul, MatMul
+from wrappers.training import BatchedMatMul, ElementWiseAdd, ElementWiseMultiplication, MatMul
 
 
 def setup_matmul():
@@ -49,15 +49,61 @@ def setup_batch_matmul():
         "shape": f"({BATCH * N_HEADS}, {SEQ_LEN}, {HEAD_DIM}) @ ({BATCH * N_HEADS}, {HEAD_DIM}, {SEQ_LEN})",
     }
 
+def setup_elementwise_add():
+    """
+    Elementwise addition shape:
+    [Batch * Seq_Len * Embedding] + [Batch * Seq_Len * Embedding]
+    """
+
+    BATCH = 4
+    SEQ_LEN = 256
+    EMBED_DIM = 1024
+
+    A = torch.randn(BATCH, SEQ_LEN, EMBED_DIM, device="cuda")
+    B = torch.randn(BATCH, SEQ_LEN, EMBED_DIM, device="cuda")
+    op = ElementWiseAdd()
+
+    return {
+        "cuda": lambda: op(A, B),
+        "torch": lambda: torch.add(A, B),
+        "flops": None,
+        "bytes": 3 * A.numel() * 4,
+        "shape": f"({BATCH}, {SEQ_LEN}, {EMBED_DIM}) + ({BATCH}, {SEQ_LEN}, {EMBED_DIM})"
+    }
+
+
+def setup_elementwise_multi():
+    """
+    Elementwise multiplication shape: 
+    [Batch * Seq_Len * Embedding] * [Batch * Seq_Len * Embedding]
+    """
+
+    BATCH = 4
+    SEQ_LEN = 256
+    EMBED_DIM = 3072 # FFN elementwise multi dim.
+
+    A = torch.randn(BATCH, SEQ_LEN, EMBED_DIM, device="cuda")
+    B = torch.randn(BATCH, SEQ_LEN, EMBED_DIM, device="cuda")
+    op = ElementWiseMultiplication()
+
+    return {
+        "cuda": lambda: op(A, B),
+        "torch": lambda: torch.mul(A, B),
+        "flops": None,
+        "bytes": 3 * A.numel() * 4,
+        "shape": f"({BATCH}, {SEQ_LEN}, {EMBED_DIM}) * ({BATCH}, {SEQ_LEN}, {EMBED_DIM})"
+    }
 
 # Allow us to setup the kernels.
 KERNELS = {
     "matmul": setup_matmul,
     "batch_matmul": setup_batch_matmul,
+    "addition": setup_elementwise_add,
+    "multi": setup_elementwise_multi
 }
 
 
-def benchmark_kernel(kernel, warmup=20, iterations=50):
+def benchmark_kernel(kernel, warmup=50, iterations=250):
     """
     Time a callable with CUDA events.
 
