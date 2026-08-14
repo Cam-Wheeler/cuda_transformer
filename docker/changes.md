@@ -45,3 +45,7 @@ v0.0.2 - Elementwise add and multi
 v0.0.3 - Softmax
 
 v0.0.4 - RMSNorm
+
+### Profiling Layer 1
+
+v0.0.1 - first draft of layer 1 of profiling pipeline.
