@@ -49,3 +49,9 @@ v0.0.4 - RMSNorm
 ### Profiling Layer 1
 
 v0.0.1 - first draft of layer 1 of profiling pipeline.
+
+v0.0.2 - shared layer 1/2 bench script.
+
+### Profiling Layer 2
+
+v0.0.1 - first draft of layer 2 (ncu) profiling pipeline.

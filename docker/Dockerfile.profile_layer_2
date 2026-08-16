@@ -12,14 +12,16 @@ COPY pyproject.toml uv.lock ./
 # Install torch from the CUDA wheel index
 ENV UV_TORCH_BACKEND=cu126
 
-# Install nsys
-RUN apt-get update && apt-get install -y --no-install-recommends gnupg \
-    && echo "deb https://developer.download.nvidia.com/devtools/repos/ubuntu2204/$(dpkg --print-architecture) /" \
-      > /etc/apt/sources.list.d/nvidia-devtools.list \
-    && apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends nsight-systems-cli \
+# Install ncu (Nsight Compute CLI)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cuda-nsight-compute-12-6 \
     && rm -rf /var/lib/apt/lists/*
+
+# deb installs land under a versioned dir, not always on PATH
+RUN NCU_HOME=$(find /opt/nvidia/nsight-compute -mindepth 1 -maxdepth 1 -type d | head -n1) \
+    && test -x "$NCU_HOME/ncu" \
+    && ln -s "$NCU_HOME" /opt/nvidia/nsight-compute/current
+ENV PATH="/opt/nvidia/nsight-compute/current:${PATH}"
 
 # Create the venv and install deps.
 RUN uv sync --no-dev --frozen --python 3.12
@@ -35,10 +37,10 @@ RUN uv run python /app/setup.py build_ext --inplace
 # Python wrappers around C++
 COPY wrappers /app/wrappers
 
-# Profiling code, import layer 1 into /app.
+# Profiling code, import layer 2 into /app.
 COPY profiling/setup_kernels.py /app/setup_kernels.py
 COPY profiling/layer_one_or_two_bench.py /app/layer_one_or_two_bench.py
-COPY profiling/launch_nsys.sh /app/launch_nsys.sh
+COPY profiling/launch_ncu.sh /app/launch_ncu.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 

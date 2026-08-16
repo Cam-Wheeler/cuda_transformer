@@ -21,4 +21,4 @@ nsys profile \
   --trace=cuda,nvtx \
   --capture-range=cudaProfilerApi \
   --capture-range-end=stop \
-  python layer_1_bench.py --kernel "$KERNEL"
+  python layer_one_or_two_bench.py --kernel "$KERNEL" --layer "1"
