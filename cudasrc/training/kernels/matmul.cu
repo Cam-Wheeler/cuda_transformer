@@ -189,7 +189,9 @@ Kernel launch for matmul.
 @param K: The number of columns in A and rows in B.
 */
 __host__ void launch_fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K) {
-    dim3 threads_per_block(16, 16);
+    // With 32 x 32 or 32 x 16, we are fully coalescing our warps in B and C! 
+    // We are going for 16 to keep the number of active warps high is our SM can only hold 1536 threads!
+    dim3 threads_per_block(32, 16); 
     dim3 blocks(
         (N + threads_per_block.x - 1) / threads_per_block.x,
         (M + threads_per_block.y - 1) / threads_per_block.y
@@ -216,7 +218,7 @@ __host__ void launch_bwd_matmul(
 
     // Compute the backward for A.
     // Output is M x K
-    dim3 threads_per_block_a(16, 16);
+    dim3 threads_per_block_a(32, 16); // Savings on the write, not much we can do currently with the reads.
     dim3 blocks_a(
         (K + threads_per_block_a.x - 1) / threads_per_block_a.x,
         (M + threads_per_block_a.y - 1) / threads_per_block_a.y
@@ -225,7 +227,7 @@ __host__ void launch_bwd_matmul(
 
     // Compute the backward for B.
     // Output is K x N
-    dim3 threads_per_block_b(16, 16);
+    dim3 threads_per_block_b(32, 16); // Savings on the reads from grad_out and writes to grad_b
     dim3 blocks_b(
         (N + threads_per_block_b.x - 1) / threads_per_block_b.x,
         (K + threads_per_block_b.y - 1) / threads_per_block_b.y
@@ -248,7 +250,7 @@ __host__ void launch_fwd_batched_matmul(
     const float* A, const float* B, float* C, int batch_size, int M, int N, int K
 ) {
     // Reduce the size of the blocks to account for the "slices" in the batch dimension.
-    dim3 threads_per_block(8, 8);
+    dim3 threads_per_block(32, 16); // Move 128 bytes per warp instead of 32 and broadcast to 8. Broadcast to 16 instead of 8!
     dim3 blocks(
         (N + threads_per_block.x - 1) / threads_per_block.x,
         (M + threads_per_block.y - 1) / threads_per_block.y,
@@ -277,7 +279,7 @@ __host__ void launch_bwd_batched_matmul(
 ) {
     // Compute the backward for A.
     // Output is (batch size, M, K)
-    dim3 threads_per_block_a(8, 8);
+    dim3 threads_per_block_a(32, 16);
     dim3 blocks_a(
         (K + threads_per_block_a.x - 1) / threads_per_block_a.x,
         (M + threads_per_block_a.y - 1) / threads_per_block_a.y,
@@ -287,7 +289,7 @@ __host__ void launch_bwd_batched_matmul(
 
     // Compute the backward for B.
     // Output is (batch size, K, N) 
-    dim3 threads_per_block_b(8, 8);
+    dim3 threads_per_block_b(32, 16);
     dim3 blocks_b(  
         (N + threads_per_block_b.x - 1) / threads_per_block_b.x,
         (K + threads_per_block_b.y - 1) / threads_per_block_b.y,

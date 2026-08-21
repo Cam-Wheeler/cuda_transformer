@@ -22,7 +22,9 @@ OUT_DIR = HERE / "figures"
 
 LABELS = {
     "matmul": "Matmul",
+    "matmul_coalesced": "Matmul\n(coalesced)",
     "batch_matmul": "Batched\nmatmul",
+    "batch_matmul_coalesced": "Batched\nmatmul\n(coalesced)",
     "addition": "Add",
     "multi": "Mul",
     "softmax": "Softmax",
@@ -37,7 +39,9 @@ CUDA_EDGE = "#2F6F64"
 TORCH_COLOR = "#F5C6AA"
 TORCH_EDGE = "#8B4A32"
 ERROR_COLOR = "#E8E8ED"
-BAR_EDGEWIDTH = 2.0
+BAR_EDGEWIDTH = 1.5
+GROUPED_BAR_WIDTH = 0.22
+SLOWDOWN_BAR_WIDTH = 0.4
 
 
 def load_rows():
@@ -78,7 +82,7 @@ def plot_latency(rows):
     torch_std = np.array([float(r["torch_std_ms"]) for r in rows])
 
     x = np.arange(len(names))
-    width = 0.36
+    width = GROUPED_BAR_WIDTH
 
     fig, ax = plt.subplots(figsize=(9.5, 5.2))
     ax.bar(
@@ -145,6 +149,7 @@ def plot_slowdown(rows):
     bars = ax.bar(
         x,
         slowdown,
+        width=SLOWDOWN_BAR_WIDTH,
         color=CUDA_COLOR,
         edgecolor=CUDA_EDGE,
         linewidth=BAR_EDGEWIDTH,
@@ -178,7 +183,7 @@ def plot_throughput(rows):
     bw = [r for r in rows if r["metric"] == "GB/s"]
 
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.0))
-    width = 0.36
+    width = GROUPED_BAR_WIDTH
 
     def _grouped(ax, subset, ylabel, title):
         names = [LABELS[r["kernel"]] for r in subset]
