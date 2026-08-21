@@ -46,7 +46,7 @@ v0.0.3 - Softmax
 
 v0.0.4 - RMSNorm
 
-v0.0.5 - Warp Coalesing for the MatMul and Batched MatMul.
+v0.0.5 - Warp Coalescing for the MatMul and Batched MatMul.
 
 ### Profiling Layer 1
 
