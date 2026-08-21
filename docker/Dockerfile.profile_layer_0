@@ -27,7 +27,8 @@ RUN uv run python /app/setup.py build_ext --inplace
 COPY wrappers /app/wrappers
 
 # Profiling code, import layer 0 into /app.
-COPY profiling/time_cuda_vs_torch.py /app/time_cuda_vs_torch.py
+COPY profiling/setup_kernels.py /app/setup_kernels.py
+COPY profiling/layer_0_bench.py /app/layer_0_bench.py
 
 ENV PATH="/app/.venv/bin:$PATH"
 

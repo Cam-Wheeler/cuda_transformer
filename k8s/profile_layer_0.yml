@@ -30,7 +30,7 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
         - |
-          uv run --no-sync time_cuda_vs_torch.py --kernel matmul
+          uv run --no-sync layer_0_bench.py --kernel matmul
           EXIT_CODE=$?
           echo "Fixing permissions..."
           chown -R 28853:5455 /data
