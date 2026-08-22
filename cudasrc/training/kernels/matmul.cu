@@ -6,7 +6,9 @@ Within QWEN we will be using this in the attention and FFN layers.
 #include <cuda_runtime.h>
 
 /*
-Standard matmul forward pass.
+Matmul forward pass.
+
+Uses shared memory to reduce trips to HBM when performing matmul.
 
 Y = A @ B:
     A is M x K
@@ -20,20 +22,67 @@ Y = A @ B:
 @param N: The number of cols in B and C
 @param K: The number of columns in A and rows in B.
 */
+template <const int BLOCKSIZE>
 __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K) {
 
-    // Grab the row and col this thread is responsible for! 
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    // Set the output tile that we need to compute for! 
+    int c_rows = blockIdx.y;
+    int c_cols = blockIdx.x;
 
-    // Bounds check.
-    if (row < M && col < N) {
-        float sum = 0.f;
-        // Iterate across the row and down the column.
-        for (int k = 0; k < K; k++) {
-            sum += A[row * K + k] * B[k * N + col];
+    // Update the pointers so the tile is in the correct position to start looping.
+    A += c_rows * BLOCKSIZE * K; // jump rows of A (M x K) to find the tiles rows
+    B += c_cols * BLOCKSIZE; // jump cols of B (K x N) to find the tiles columns
+    C += c_rows * BLOCKSIZE * N + c_cols * BLOCKSIZE; // where the tile sits in the output.
+
+    // Shared memory to load the tiles into
+    __shared__ float smem_A[BLOCKSIZE * BLOCKSIZE];
+    __shared__ float smem_B[BLOCKSIZE * BLOCKSIZE];
+
+    // Thread positions within the block! In smem thread owns [thread_row, thread_col]
+    int thread_row_idx = threadIdx.y;
+    int thread_col_idx = threadIdx.x;
+
+    // Global row and col this thread is going to handle. This can be out of bounds.
+    int row = c_rows * BLOCKSIZE + thread_row_idx;
+    int col = c_cols * BLOCKSIZE + thread_col_idx;
+
+    // Output for this specific thread C[thread_row, thread_col]
+    float thread_sum = 0.f;
+
+    // Now we start iterating through K in tile steps computing the total as we go.
+    for (int t_k_idx = 0; t_k_idx < K; t_k_idx += BLOCKSIZE) {
+
+        // We needs to bounds check to ensure we do not have issues when 
+        // our tiles do not fit into the A and B neatly.
+        int a_k = t_k_idx + thread_col_idx;  // A[row, a_k]
+        int b_k = t_k_idx + thread_row_idx;  // B[b_k, col]
+        
+        // Becuase of our indexing pattern, this is all coalseced! 
+        smem_A[thread_row_idx * BLOCKSIZE + thread_col_idx] =
+        (row < M && a_k < K) ? A[thread_row_idx * K + thread_col_idx] : 0.f; // if out of bounds write 0 not garbage!
+
+        smem_B[thread_row_idx * BLOCKSIZE + thread_col_idx] =
+        (b_k < K && col < N) ? B[thread_row_idx * N + thread_col_idx] : 0.f; // ^^^
+
+        // ensure all threads are done loading
+        __syncthreads();
+
+        // Shift the tile pointers for the next loop.
+        A += BLOCKSIZE; // move right a block
+        B += BLOCKSIZE * N; // move down a block
+
+        // Use smem values to compute the rolling dot product.
+        for (int dot_idx = 0; dot_idx < BLOCKSIZE; dot_idx++) {
+            thread_sum += smem_A[thread_row_idx * BLOCKSIZE + dot_idx] * smem_B[dot_idx * BLOCKSIZE + thread_col_idx];
         }
-        C[row * N + col] = sum;
+        
+        // Ensure all the threads are done working.
+        __syncthreads();
+    }
+
+    // write the final output
+    if (row < M && col < N) {
+        C[thread_row_idx * N + thread_col_idx] = thread_sum;    
     }
 }
 
@@ -47,22 +96,61 @@ Standard matmul backward pass to compute the grad with respect to matrix A.
 @param N: The number of columns in B and grad_out
 @param K: The number of rows in B and the number of columns in grad_A
 */
+template <const int BLOCKSIZE>
 __global__ void bwd_matmul_a(const float* grad_out, const float* B, float* grad_a, int M, int N, int K) {
 
-    // Get the row and col
-    int row = blockIdx.y * blockDim.y + threadIdx.y; // row idx for grad_a
-    int col = blockIdx.x * blockDim.x + threadIdx.x; // col idx for grad_a
+    // grad_a tile
+    int grad_a_rows = blockIdx.y;
+    int grad_a_cols = blockIdx.x;
 
-    // Bounds checking
-    if (row < M && col < K) {
-        float sum = 0.f;
-        // We iterate through n as N is the shared column dim between grad_out and B.
-        for (int n = 0; n < N; n++) {
-            // cols here are not really "columns" its just the row that we want! 
-            sum += grad_out[row * N + n] * B[col * N + n];
+    // Get the tiles in the correct positions
+    grad_out += grad_a_rows * BLOCKSIZE * N; // Jump to row
+    B += grad_a_cols * BLOCKSIZE * N; // Jump to col (row really)
+    grad_a += grad_a_rows * BLOCKSIZE * K + grad_a_cols * BLOCKSIZE; // where we are writing to.
+
+    // shared memory
+    __shared__ float smem_G[BLOCKSIZE * BLOCKSIZE];
+    __shared__ float smem_B[BLOCKSIZE * BLOCKSIZE];
+
+    // thread idx in the block
+    int thread_row_idx = threadIdx.y;
+    int thread_col_idx = threadIdx.x;
+
+    // global row/col for bounds checking
+    int row = grad_a_rows * BLOCKSIZE + thread_row_idx;
+    int col = grad_a_cols * BLOCKSIZE + thread_col_idx;
+
+    float grad_sum = 0.f;
+
+    // Now we loop through N filling up as we go!
+    for (int t_n_idx = 0; t_n_idx < N; t_n_idx += BLOCKSIZE) {
+
+        // The index that we are currently working with.
+        int g_n = t_n_idx + thread_col_idx;
+        int b_row = grad_a_cols * BLOCKSIZE + thread_row_idx;
+
+        smem_G[thread_row_idx * BLOCKSIZE + thread_col_idx] = 
+        (row < M && g_n < N) ? grad_out[thread_row_idx * N + thread_col_idx] : 0.f;
+        
+        smem_B[thread_row_idx * BLOCKSIZE + thread_col_idx] = 
+        (b_row < K && g_n < N) ? B[thread_row_idx * N + thread_col_idx] : 0.f;
+
+        __syncthreads();
+
+        grad_out += BLOCKSIZE;
+        B += BLOCKSIZE;
+
+        // now we move through the shared memory computing the partial sums
+        for (int smem_idx = 0; smem_idx < BLOCKSIZE; smem_idx++) {
+            grad_sum += smem_G[thread_row_idx * BLOCKSIZE + smem_idx] * smem_B[thread_col_idx * BLOCKSIZE + smem_idx];
         }
-        // Add the sum to the grad_A matrix.
-        grad_a[row * K + col] = sum;
+
+        __syncthreads();
+    }
+
+
+    if (row < M && col < K) {
+        grad_a[thread_row_idx * K + thread_col_idx] = grad_sum;
     }
 }
 
@@ -191,12 +279,13 @@ Kernel launch for matmul.
 __host__ void launch_fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K) {
     // With 32 x 32 or 32 x 16, we are fully coalescing our warps in B and C! 
     // We are going for 16 to keep the number of active warps high is our SM can only hold 1536 threads!
-    dim3 threads_per_block(32, 16); 
+    const int BLOCKSIZE = 32;
+    dim3 threads_per_block(BLOCKSIZE, BLOCKSIZE); 
     dim3 blocks(
-        (N + threads_per_block.x - 1) / threads_per_block.x,
-        (M + threads_per_block.y - 1) / threads_per_block.y
+        (N + BLOCKSIZE - 1) / BLOCKSIZE,
+        (M + BLOCKSIZE - 1) / BLOCKSIZE
     );
-    fwd_matmul<<<blocks, threads_per_block>>>(A, B, C, M, N, K);
+    fwd_matmul<BLOCKSIZE><<<blocks, threads_per_block>>>(A, B, C, M, N, K);
 }
 
 /*
