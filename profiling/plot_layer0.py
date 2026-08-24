@@ -23,6 +23,7 @@ OUT_DIR = HERE / "figures"
 LABELS = {
     "matmul": "Matmul",
     "matmul_coalesced": "Matmul\n(coalesced)",
+    "matmul_smem": "Matmul\n(smem)",
     "batch_matmul": "Batched\nmatmul",
     "batch_matmul_coalesced": "Batched\nmatmul\n(coalesced)",
     "addition": "Add",
@@ -84,7 +85,7 @@ def plot_latency(rows):
     x = np.arange(len(names))
     width = GROUPED_BAR_WIDTH
 
-    fig, ax = plt.subplots(figsize=(9.5, 5.2))
+    fig, ax = plt.subplots(figsize=(10.5, 5.2))
     ax.bar(
         x - width / 2,
         cuda_ms,
@@ -145,7 +146,7 @@ def plot_slowdown(rows):
     slowdown = np.array([float(r["slowdown"]) for r in rows])
     x = np.arange(len(names))
 
-    fig, ax = plt.subplots(figsize=(9.5, 5.2))
+    fig, ax = plt.subplots(figsize=(10.5, 5.2))
     bars = ax.bar(
         x,
         slowdown,
@@ -182,7 +183,7 @@ def plot_throughput(rows):
     gemm = [r for r in rows if r["metric"] == "TFLOPS"]
     bw = [r for r in rows if r["metric"] == "GB/s"]
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.0))
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.0))
     width = GROUPED_BAR_WIDTH
 
     def _grouped(ax, subset, ylabel, title):

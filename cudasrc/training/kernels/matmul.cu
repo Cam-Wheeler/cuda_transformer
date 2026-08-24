@@ -164,18 +164,59 @@ Standard matmul backward pass to compute the grad with respect to matrix B.
 @param N: The number of columns in grad_out and B
 @param K: The number of columns in A and rows in grad_B
 */
+template<const int BLOCKSIZE>
 __global__ void bwd_matmul_b(const float* grad_out, const float* A, float* grad_b, int M, int N, int K) {
 
-    int row = blockIdx.y * blockDim.y + threadIdx.y; // row idx for grad_b
-    int col = blockIdx.x * blockDim.x + threadIdx.x; // col idx for grad_b
+    // grab the location that this tile is covering for grad_b
+    int grad_b_rows = blockIdx.y;
+    int grad_b_cols = blockIdx.x;
 
+    // Tile to correct positions
+    grad_out += grad_b_cols * BLOCKSIZE; // jump to the correct row
+    A += grad_b_rows * BLOCKSIZE; // jump to the correct col (row really)
+    grad_b += grad_b_rows * BLOCKSIZE * N + grad_b_cols * BLOCKSIZE;
+
+    // Shared memory
+    __shared__ float smem_G[BLOCKSIZE* BLOCKSIZE];
+    __shared__ float smem_A[BLOCKSIZE * BLOCKSIZE];
+
+    // Thread indexing within the tile.
+    int thread_row_idx = threadIdx.y;
+    int thread_col_idx = threadIdx.x;
+
+    // global indexing for bounds checking
+    int row = grad_b_rows * BLOCKSIZE + thread_row_idx;
+    int col = grad_b_cols * BLOCKSIZE + thread_col_idx;
+
+    float grad_sum = 0.f;
+
+    // Iterate the tile through the matrices down M. 
+    for (int t_m_idx = 0; t_m_idx < M; t_m_idx += BLOCKSIZE) {
+        
+        // get the index for thread to load value from grad_out and A.
+        int g_m = t_m_idx + thread_row_idx;
+        int a_k =  grad_b_rows * BLOCKSIZE + thread_col_idx;
+
+        smem_G[thread_row_idx * BLOCKSIZE + thread_col_idx] = 
+        (g_m < M && col < N) ? grad_out[thread_row_idx * N + thread_col_idx] : 0.f;
+
+        smem_A[thread_row_idx * BLOCKSIZE + thread_col_idx] =
+        (g_m < M && a_k < K) ? A[thread_row_idx * K + thread_col_idx] : 0.f;
+
+        __syncthreads();
+
+        grad_out += BLOCKSIZE * N;
+        A += BLOCKSIZE * K;
+        
+        // Now we loop through smem and compute the partial products
+        for (int smem_idx = 0; smem_idx < BLOCKSIZE; smem_idx++) {
+            grad_sum += smem_G[smem_idx * BLOCKSIZE + thread_col_idx] * smem_A[smem_idx * BLOCKSIZE + thread_row_idx];
+        }
+
+        __syncthreads();
+    }
     if (row < K && col < N) {
-        float sum = 0.f;
-        // Because that we have M x N and M x K we will end up with K x N
-        for (int m = 0; m < M; m++) {
-            sum += A[m * K + row] * grad_out[m * N + col];
-        } 
-        grad_b[row * N + col] = sum;
+        grad_b[thread_row_idx * N + thread_col_idx] = grad_sum;
     }
 }
 
@@ -307,21 +348,22 @@ __host__ void launch_bwd_matmul(
 
     // Compute the backward for A.
     // Output is M x K
-    dim3 threads_per_block_a(32, 16); // Savings on the write, not much we can do currently with the reads.
+    const int BLOCKSIZE = 32;
+    dim3 threads_per_block_a(BLOCKSIZE, BLOCKSIZE); // Savings on the write, not much we can do currently with the reads.
     dim3 blocks_a(
-        (K + threads_per_block_a.x - 1) / threads_per_block_a.x,
-        (M + threads_per_block_a.y - 1) / threads_per_block_a.y
+        (K + BLOCKSIZE - 1) / BLOCKSIZE,
+        (M + BLOCKSIZE - 1) / BLOCKSIZE
     );
-    bwd_matmul_a<<<blocks_a, threads_per_block_a>>>(grad_out, B, grad_a, M, N, K);
+    bwd_matmul_a<BLOCKSIZE><<<blocks_a, threads_per_block_a>>>(grad_out, B, grad_a, M, N, K);
 
     // Compute the backward for B.
     // Output is K x N
-    dim3 threads_per_block_b(32, 16); // Savings on the reads from grad_out and writes to grad_b
+    dim3 threads_per_block_b(BLOCKSIZE, BLOCKSIZE); // Savings on the reads from grad_out and writes to grad_b
     dim3 blocks_b(
-        (N + threads_per_block_b.x - 1) / threads_per_block_b.x,
-        (K + threads_per_block_b.y - 1) / threads_per_block_b.y
+        (N + BLOCKSIZE - 1) / BLOCKSIZE,
+        (K + BLOCKSIZE - 1) / BLOCKSIZE
     );
-    bwd_matmul_b<<<blocks_b, threads_per_block_b>>>(grad_out, A, grad_b, M, N, K);
+    bwd_matmul_b<BLOCKSIZE><<<blocks_b, threads_per_block_b>>>(grad_out, A, grad_b, M, N, K);
 }
 
 /*
@@ -377,9 +419,9 @@ __host__ void launch_bwd_batched_matmul(
     bwd_batched_matmul_a<<<blocks_a, threads_per_block_a>>>(grad_out, B, grad_a, batch_size, M, N, K);
 
     // Compute the backward for B.
-    // Output is (batch size, K, N) 
+    // Output is (batch size, K, N)
     dim3 threads_per_block_b(32, 16);
-    dim3 blocks_b(  
+    dim3 blocks_b(
         (N + threads_per_block_b.x - 1) / threads_per_block_b.x,
         (K + threads_per_block_b.y - 1) / threads_per_block_b.y,
         batch_size

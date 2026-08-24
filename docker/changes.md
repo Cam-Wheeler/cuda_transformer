@@ -18,7 +18,9 @@ v0.0.3 - Added tests for matmul.
 
 v0.0.4 - Added tests for rmsnorm.
 
-v0.0.5 - Added tests for softmax
+v0.0.5 - Added tests for softmax.
+
+v0.0.6 - Testing the shared mem matmul and batched matmul.
 
 ### CUDA Smoke Tests
 
@@ -47,6 +49,8 @@ v0.0.3 - Softmax
 v0.0.4 - RMSNorm
 
 v0.0.5 - Warp Coalescing for the MatMul and Batched MatMul.
+
+v0.0.6 - Smem MatMul and Batched MatMul
 
 ### Profiling Layer 1
 

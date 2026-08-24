@@ -30,6 +30,18 @@ Torch:    15.32 TFLOPS
 
 ```
 
+- Matmul Profile (smem):
+
+```python
+kernel:   matmul  (1024, 1024) @ (1024, 3072)
+CUDA:     1.407 ± 0.129 ms
+Torch:    0.419 ± 0.005 ms
+slowdown: 3.4x
+CUDA:     4.58 TFLOPS
+Torch:    15.37 TFLOPS
+
+```
+
 - Batched Matmul Profile:
 
 ```bash
