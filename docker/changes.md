@@ -52,6 +52,8 @@ v0.0.5 - Warp Coalescing for the MatMul and Batched MatMul.
 
 v0.0.6 - Smem MatMul and Batched MatMul
 
+v0.0.7 - Smem Batched MatMul layer 0 numbers
+
 ### Profiling Layer 1
 
 v0.0.1 - first draft of layer 1 of profiling pipeline.

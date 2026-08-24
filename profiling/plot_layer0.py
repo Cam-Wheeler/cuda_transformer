@@ -14,6 +14,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import Patch
 
 
 HERE = Path(__file__).resolve().parent
@@ -26,6 +27,7 @@ LABELS = {
     "matmul_smem": "Matmul\n(smem)",
     "batch_matmul": "Batched\nmatmul",
     "batch_matmul_coalesced": "Batched\nmatmul\n(coalesced)",
+    "batch_matmul_smem": "Batched\nmatmul\n(smem)",
     "addition": "Add",
     "multi": "Mul",
     "softmax": "Softmax",
@@ -39,6 +41,8 @@ CUDA_COLOR = "#B8E0D2"
 CUDA_EDGE = "#2F6F64"
 TORCH_COLOR = "#F5C6AA"
 TORCH_EDGE = "#8B4A32"
+BEST_COLOR = "#C4B5FD"
+BEST_EDGE = "#6D28D9"
 ERROR_COLOR = "#E8E8ED"
 BAR_EDGEWIDTH = 1.5
 GROUPED_BAR_WIDTH = 0.22
@@ -48,6 +52,25 @@ SLOWDOWN_BAR_WIDTH = 0.4
 def load_rows():
     with CSV_PATH.open(newline="") as f:
         return list(csv.DictReader(f))
+
+
+def _kernel_family(name):
+    if name.startswith("batch_matmul"):
+        return "batch_matmul"
+    if name.startswith("matmul"):
+        return "matmul"
+    return name
+
+
+def _best_indices(rows):
+    """Lowest slowdown in each kernel family (current best of that type)."""
+    best = {}
+    for i, row in enumerate(rows):
+        family = _kernel_family(row["kernel"])
+        slowdown = float(row["slowdown"])
+        if family not in best or slowdown < best[family][1]:
+            best[family] = (i, slowdown)
+    return {i for i, _ in best.values()}
 
 
 def _style():
@@ -145,23 +168,44 @@ def plot_slowdown(rows):
     names = [LABELS[r["kernel"]] for r in rows]
     slowdown = np.array([float(r["slowdown"]) for r in rows])
     x = np.arange(len(names))
+    best_idxs = _best_indices(rows)
+    colors = [BEST_COLOR if i in best_idxs else CUDA_COLOR for i in range(len(rows))]
+    edges = [BEST_EDGE if i in best_idxs else CUDA_EDGE for i in range(len(rows))]
 
     fig, ax = plt.subplots(figsize=(10.5, 5.2))
     bars = ax.bar(
         x,
         slowdown,
         width=SLOWDOWN_BAR_WIDTH,
-        color=CUDA_COLOR,
-        edgecolor=CUDA_EDGE,
+        color=colors,
+        edgecolor=edges,
         linewidth=BAR_EDGEWIDTH,
         zorder=3,
     )
-    ax.axhline(1.0, color=TORCH_COLOR, linestyle="--", linewidth=1.4, label="Torch Kernel (1×)")
+    ax.axhline(1.0, color=TORCH_COLOR, linestyle="--", linewidth=1.4)
     ax.set_ylabel("Slowdown (CUDA ms / Torch ms)")
     ax.set_xticks(x)
     ax.set_xticklabels(names)
     ax.set_title("CUDA Kernel vs Torch Kernel Slowdown")
-    ax.legend(frameon=False)
+    ax.legend(
+        handles=[
+            plt.Line2D(
+                [0],
+                [0],
+                color=TORCH_COLOR,
+                linestyle="--",
+                linewidth=1.4,
+                label="Torch Kernel (1×)",
+            ),
+            Patch(
+                facecolor=BEST_COLOR,
+                edgecolor=BEST_EDGE,
+                linewidth=BAR_EDGEWIDTH,
+                label="Current best",
+            ),
+        ],
+        frameon=False,
+    )
     ax.yaxis.grid(True, linestyle="--", alpha=0.35, zorder=0)
     for bar, val in zip(bars, slowdown):
         ax.text(

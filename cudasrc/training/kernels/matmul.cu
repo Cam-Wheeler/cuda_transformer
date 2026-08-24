@@ -232,22 +232,67 @@ Computes Y[batch] = A[batch] * B[batch] in parallel!
 @param N: The number of cols in B.
 @param K: The number of cols in A and rows in B.
 */
+template<const int BLOCKSIZE>
 __global__ void fwd_batched_matmul(const float* A, const float* B, float* C, int batch_size, int M, int N, int K) {
 
-    // Indexing
-    int batch = blockIdx.z; // batch idx (the slice in the 3D grid).
-    int row = blockIdx.y * blockDim.y + threadIdx.y; // The row within the batch.
-    int col = blockIdx.x * blockDim.x + threadIdx.x; // The column within the batch.
+    // What output tile are we working with?
+    int c_batch = blockIdx.z; 
+    int c_rows = blockIdx.y;
+    int c_cols = blockIdx.x;
 
-    // Bounds checking
-    if (batch < batch_size && row < M && col < N) {
-        float sum = 0.f;
-        for (int k = 0; k < K; k++) {
-            // A[batch, row, idx within row], B[batch, idx within col, col]
-            sum += A[batch * M * K + row * K + k] * B[batch * K * N + k * N + col];
+    // Update the ptrs to set the tile in the correct pos on A, B and C.
+    A += c_batch * M * K + c_rows * BLOCKSIZE * K;
+    B += c_batch * K * N + c_cols * BLOCKSIZE;
+    C += c_batch * M * N + c_rows * BLOCKSIZE * N + c_cols * BLOCKSIZE;
+
+    // Shared mem for the tiles A and B
+    __shared__ float smem_A[BLOCKSIZE * BLOCKSIZE];
+    __shared__ float smem_B[BLOCKSIZE * BLOCKSIZE];
+
+    // Thred position within the block, the thread handles a load from A and B.
+    int thread_row_idx = threadIdx.y;
+    int thread_col_idx = threadIdx.x;
+
+    // Global row, col for OOB.
+    int row = c_rows * BLOCKSIZE + thread_row_idx;
+    int col = c_cols * BLOCKSIZE + thread_col_idx;
+
+    // Sum of threads row and col (rolls through tiles).
+    float thread_sum = 0.f;
+
+    // Iterate tile through K.
+    for (int t_k_idx = 0; t_k_idx < K; t_k_idx += BLOCKSIZE) {
+
+        // idx considering K. 
+        int a_k = t_k_idx + thread_col_idx;
+        int b_k = t_k_idx + thread_row_idx;
+
+        // Fill A and B smem with current tile.
+        smem_A[thread_row_idx * BLOCKSIZE + thread_col_idx] =
+        (row < M && a_k < K) ? A[thread_row_idx * K + thread_col_idx] : 0.f; // if out of bounds write 0 not garbage!
+
+        smem_B[thread_row_idx * BLOCKSIZE + thread_col_idx] =
+        (b_k < K && col < N) ? B[thread_row_idx * N + thread_col_idx] : 0.f; // ^^^
+
+        // Ensure all work is done.
+        __syncthreads();
+
+        // Shift pointers to next tile.
+        A += BLOCKSIZE; // move right a block
+        B += BLOCKSIZE * N; // move down a block
+
+        // Compute rolling dot product from smem.
+        for (int dot_idx = 0; dot_idx < BLOCKSIZE; dot_idx++) {
+            thread_sum += smem_A[thread_row_idx * BLOCKSIZE + dot_idx] * smem_B[dot_idx * BLOCKSIZE + thread_col_idx];
         }
-        // Lets get that sum into C.
-        C[batch * M * N + row * N + col] = sum; // C[batch, row, col]
+        
+        // Ensure all the threads are done working.
+        __syncthreads();
+    }
+
+    // Write to C
+    if (c_batch < batch_size && row < M && col < N){
+        C[thread_row_idx * N + thread_col_idx] = thread_sum;
     }
 }
 
@@ -262,21 +307,66 @@ Backward pass for batched matmul to compute the gradients for A.
 @param N: The number of columns in B and grad_out.
 @param K: The number of columns in A and rows in grad_b.
 */
+template<const int BLOCKSIZE>
 __global__ void bwd_batched_matmul_a(const float* grad_out, const float* B, float* grad_a, int batch_size, int M, int N, int K) {
 
-    int batch = blockIdx.z; // batch idx (the slice in the 3D grid).
-    int row = blockIdx.y * blockDim.y + threadIdx.y; // row idx for grad_a
-    int col = blockIdx.x * blockDim.x + threadIdx.x; // col idx for grad_a
-
-    // Bounds checking
-    if (batch < batch_size && row < M && col < K) {
-        float sum = 0.f;
-        // Iterate through the row we want.
-        for (int n = 0; n < N; n ++) {
-            sum += grad_out[batch * M * N + row * N + n] * B[batch * K * N + col * N + n];
+        // grad_a tile position.
+        int grad_a_batch = blockIdx.z;
+        int grad_a_rows = blockIdx.y;
+        int grad_a_cols = blockIdx.x;
+    
+        // Get the tiles in the correct positions.
+        grad_out += grad_a_batch * M * N + grad_a_rows * BLOCKSIZE * N; // Jump to row
+        B += grad_a_batch * K * N + grad_a_cols * BLOCKSIZE * N; // Jump to col (row really)
+        grad_a += grad_a_batch * M * K + grad_a_rows * BLOCKSIZE * K + grad_a_cols * BLOCKSIZE; // where we are writing to.
+    
+        // Shared memory.
+        __shared__ float smem_G[BLOCKSIZE * BLOCKSIZE];
+        __shared__ float smem_B[BLOCKSIZE * BLOCKSIZE];
+    
+        // Thread idx in the block.
+        int thread_row_idx = threadIdx.y;
+        int thread_col_idx = threadIdx.x;
+    
+        // Global row/col for bounds checking.
+        int row = grad_a_rows * BLOCKSIZE + thread_row_idx;
+        int col = grad_a_cols * BLOCKSIZE + thread_col_idx;
+    
+        float grad_sum = 0.f;
+    
+        // Now we loop the tile through N!
+        for (int t_n_idx = 0; t_n_idx < N; t_n_idx += BLOCKSIZE) {
+    
+            // The index that we are currently working with.
+            int g_n = t_n_idx + thread_col_idx;
+            int b_row = grad_a_cols * BLOCKSIZE + thread_row_idx;
+    
+            smem_G[thread_row_idx * BLOCKSIZE + thread_col_idx] = 
+            (row < M && g_n < N) ? grad_out[thread_row_idx * N + thread_col_idx] : 0.f;
+            
+            smem_B[thread_row_idx * BLOCKSIZE + thread_col_idx] = 
+            (b_row < K && g_n < N) ? B[thread_row_idx * N + thread_col_idx] : 0.f;
+            
+            // Ensure we are done moving values.
+            __syncthreads();
+            
+            // Shift tiles across.
+            grad_out += BLOCKSIZE;
+            B += BLOCKSIZE;
+    
+            // Compute partial sums.
+            for (int smem_idx = 0; smem_idx < BLOCKSIZE; smem_idx++) {
+                grad_sum += smem_G[thread_row_idx * BLOCKSIZE + smem_idx] * smem_B[thread_col_idx * BLOCKSIZE + smem_idx];
+            }
+            
+            // Ensure we done dotting.
+            __syncthreads();
         }
-        grad_a[batch * M * K + row * K + col] = sum;
-    }
+        
+        // Write to grad_a.
+        if (grad_a_batch < batch_size && row < M && col < K) {
+            grad_a[thread_row_idx * K + thread_col_idx] = grad_sum;
+        }
 }
 
 /*
@@ -290,19 +380,60 @@ Backward pass for batched matmul to compute gradients for B.
 @param N: The number of columns in grad_out and B.
 @param K: The number of columns in A and rows in grad_b.
 */
+template<const int BLOCKSIZE>
 __global__ void bwd_batched_matmul_b(const float* grad_out, const float* A, float* grad_b, int batch_size, int M, int N, int K) {
     
-    int batch = blockIdx.z;
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    // Grab the location that this tile is covering for grad_b.
+    int grad_b_batch = blockIdx.z;
+    int grad_b_rows = blockIdx.y;
+    int grad_b_cols = blockIdx.x;
 
-    if (batch < batch_size && row < K && col < N) {
-        float sum = 0.f;
-        for (int m = 0; m < M; m++) {
-            // A[batch, :, row idx]
-            sum += A[batch * M * K + m * K + row] * grad_out[batch * M * N + m * N + col];
+    // Tile to correct positions
+    grad_out +=  grad_b_batch * M * N + grad_b_cols * BLOCKSIZE;
+    A += grad_b_batch * M * K + grad_b_rows * BLOCKSIZE;
+    grad_b += grad_b_batch * K * N + grad_b_rows * BLOCKSIZE * N + grad_b_cols * BLOCKSIZE;
+
+    // Shared memory
+    __shared__ float smem_G[BLOCKSIZE* BLOCKSIZE];
+    __shared__ float smem_A[BLOCKSIZE * BLOCKSIZE];
+
+    // Thread indexing within the tile.
+    int thread_row_idx = threadIdx.y;
+    int thread_col_idx = threadIdx.x;
+
+    // global indexing for bounds checking
+    int row = grad_b_rows * BLOCKSIZE + thread_row_idx;
+    int col = grad_b_cols * BLOCKSIZE + thread_col_idx;
+
+    float grad_sum = 0.f;
+
+    // Iterate the tile through the matrices down M. 
+    for (int t_m_idx = 0; t_m_idx < M; t_m_idx += BLOCKSIZE) {
+        
+        // get the index for thread to load value from grad_out and A.
+        int g_m = t_m_idx + thread_row_idx;
+        int a_k =  grad_b_rows * BLOCKSIZE + thread_col_idx;
+
+        smem_G[thread_row_idx * BLOCKSIZE + thread_col_idx] = 
+        (g_m < M && col < N) ? grad_out[thread_row_idx * N + thread_col_idx] : 0.f;
+
+        smem_A[thread_row_idx * BLOCKSIZE + thread_col_idx] =
+        (g_m < M && a_k < K) ? A[thread_row_idx * K + thread_col_idx] : 0.f;
+
+        __syncthreads();
+
+        grad_out += BLOCKSIZE * N;
+        A += BLOCKSIZE * K;
+        
+        // Now we loop through smem and compute the partial products
+        for (int smem_idx = 0; smem_idx < BLOCKSIZE; smem_idx++) {
+            grad_sum += smem_G[smem_idx * BLOCKSIZE + thread_col_idx] * smem_A[smem_idx * BLOCKSIZE + thread_row_idx];
         }
-        grad_b[batch * K * N + row * N + col] = sum;
+
+        __syncthreads();
+    }
+    if (grad_b_batch < batch_size && row < K && col < N) {
+        grad_b[thread_row_idx * N + thread_col_idx] = grad_sum;
     }
 }
 
@@ -380,14 +511,14 @@ Kernel launch for the forward batched matmul.
 __host__ void launch_fwd_batched_matmul(
     const float* A, const float* B, float* C, int batch_size, int M, int N, int K
 ) {
-    // Reduce the size of the blocks to account for the "slices" in the batch dimension.
-    dim3 threads_per_block(32, 16); // Move 128 bytes per warp instead of 32 and broadcast to 8. Broadcast to 16 instead of 8!
+    const int BLOCKSIZE = 32;
+    dim3 threads_per_block(BLOCKSIZE, BLOCKSIZE);
     dim3 blocks(
-        (N + threads_per_block.x - 1) / threads_per_block.x,
-        (M + threads_per_block.y - 1) / threads_per_block.y,
+        (N + BLOCKSIZE - 1) / BLOCKSIZE,
+        (M + BLOCKSIZE - 1) / BLOCKSIZE,
         batch_size
     );
-    fwd_batched_matmul<<<blocks, threads_per_block>>>(A, B, C, batch_size, M, N, K);
+    fwd_batched_matmul<BLOCKSIZE><<<blocks, threads_per_block>>>(A, B, C, batch_size, M, N, K);
 
 }
 
@@ -410,21 +541,22 @@ __host__ void launch_bwd_batched_matmul(
 ) {
     // Compute the backward for A.
     // Output is (batch size, M, K)
-    dim3 threads_per_block_a(32, 16);
+    const int BLOCKSIZE = 32;
+    dim3 threads_per_block_a(BLOCKSIZE, BLOCKSIZE);
     dim3 blocks_a(
-        (K + threads_per_block_a.x - 1) / threads_per_block_a.x,
-        (M + threads_per_block_a.y - 1) / threads_per_block_a.y,
+        (K + BLOCKSIZE - 1) / BLOCKSIZE,
+        (M + BLOCKSIZE - 1) / BLOCKSIZE,
         batch_size
     );
-    bwd_batched_matmul_a<<<blocks_a, threads_per_block_a>>>(grad_out, B, grad_a, batch_size, M, N, K);
+    bwd_batched_matmul_a<BLOCKSIZE><<<blocks_a, threads_per_block_a>>>(grad_out, B, grad_a, batch_size, M, N, K);
 
     // Compute the backward for B.
     // Output is (batch size, K, N)
-    dim3 threads_per_block_b(32, 16);
+    dim3 threads_per_block_b(BLOCKSIZE, BLOCKSIZE);
     dim3 blocks_b(
-        (N + threads_per_block_b.x - 1) / threads_per_block_b.x,
-        (K + threads_per_block_b.y - 1) / threads_per_block_b.y,
+        (N + BLOCKSIZE - 1) / BLOCKSIZE,
+        (K + BLOCKSIZE - 1) / BLOCKSIZE,
         batch_size
     );
-    bwd_batched_matmul_b<<<blocks_b, threads_per_block_b>>>(grad_out, A, grad_b, batch_size, M, N, K);
+    bwd_batched_matmul_b<BLOCKSIZE><<<blocks_b, threads_per_block_b>>>(grad_out, A, grad_b, batch_size, M, N, K);
 }
