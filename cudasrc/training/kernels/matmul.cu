@@ -22,67 +22,86 @@ Y = A @ B:
 @param N: The number of cols in B and C
 @param K: The number of columns in A and rows in B.
 */
-template <const int BLOCKSIZE>
+template <const int BM, const int BN, const int BK, const int TM>
 __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K) {
 
     // Set the output tile that we need to compute for! 
-    int c_rows = blockIdx.y;
-    int c_cols = blockIdx.x;
+    const int c_rows = blockIdx.y;
+    const int c_cols = blockIdx.x;
 
     // Update the pointers so the tile is in the correct position to start looping.
-    A += c_rows * BLOCKSIZE * K; // jump rows of A (M x K) to find the tiles rows
-    B += c_cols * BLOCKSIZE; // jump cols of B (K x N) to find the tiles columns
-    C += c_rows * BLOCKSIZE * N + c_cols * BLOCKSIZE; // where the tile sits in the output.
+    A += c_rows * BM * K; // jump rows of A
+    B += c_cols * BN; // jump cols of B
+    C += c_rows * BM * N + c_cols * BN; // where the tile sits in the output.
 
     // Shared memory to load the tiles into
-    __shared__ float smem_A[BLOCKSIZE * BLOCKSIZE];
-    __shared__ float smem_B[BLOCKSIZE * BLOCKSIZE];
+    __shared__ float smem_A[BM * BK]; // BM rows, BK cols
+    __shared__ float smem_B[BK * BN]; // BK rows, BN cols
 
-    // Thread positions within the block! In smem thread owns [thread_row, thread_col]
-    int thread_row_idx = threadIdx.y;
-    int thread_col_idx = threadIdx.x;
+    // Thread positions within the block.
+    const int thread_row = threadIdx.y;
+    const int thread_col = threadIdx.x;
 
-    // Global row and col this thread is going to handle. This can be out of bounds.
-    int row = c_rows * BLOCKSIZE + thread_row_idx;
-    int col = c_cols * BLOCKSIZE + thread_col_idx;
+    // Indexes for the load into smem.
+    const int row_a = threadIdx.x;
+    const int col_a = threadIdx.y;
+    const int row_b = threadIdx.y;
+    const int col_b = threadIdx.x;
+
+    // Global index (can be OOB) from the start.
+    int row = c_rows * BM + row_a;
+    int col = c_cols * BN + col_b;
 
     // Output for this specific thread C[thread_row, thread_col]
-    float thread_sum = 0.f;
+    float thread_results[TM];
+    for (int i = 0; i < TM; i++) {
+        thread_results[i] = 0.f;
+    }
 
     // Now we start iterating through K in tile steps computing the total as we go.
-    for (int t_k_idx = 0; t_k_idx < K; t_k_idx += BLOCKSIZE) {
+    for (int t_k_idx = 0; t_k_idx < K; t_k_idx += BK) {
 
-        // We needs to bounds check to ensure we do not have issues when 
-        // our tiles do not fit into the A and B neatly.
-        int a_k = t_k_idx + thread_col_idx;  // A[row, a_k]
-        int b_k = t_k_idx + thread_row_idx;  // B[b_k, col]
+        // Check if the thread is still in bounds as we iterate the tile.
+        int a_k = t_k_idx + col_a;  // A[row, a_k]
+        int b_k = t_k_idx + row_b;  // B[b_k, col]
         
-        // Becuase of our indexing pattern, this is all coalseced! 
-        smem_A[thread_row_idx * BLOCKSIZE + thread_col_idx] =
-        (row < M && a_k < K) ? A[thread_row_idx * K + thread_col_idx] : 0.f; // if out of bounds write 0 not garbage!
+        // Load into smem. 1 val from A 1 from B for each thread.
+        smem_A[row_a * BK + col_a] =
+        (row < M && a_k < K) ? A[row_a * K + col_a] : 0.f; // if out of bounds write 0 not garbage!
 
-        smem_B[thread_row_idx * BLOCKSIZE + thread_col_idx] =
-        (b_k < K && col < N) ? B[thread_row_idx * N + thread_col_idx] : 0.f; // ^^^
+        smem_B[row_b * BN + col_b] =
+        (b_k < K && col < N) ? B[row_b * N + col_b] : 0.f; // ^^^
 
-        // ensure all threads are done loading
+        // Ensure all threads are done loading
         __syncthreads();
 
         // Shift the tile pointers for the next loop.
-        A += BLOCKSIZE; // move right a block
-        B += BLOCKSIZE * N; // move down a block
+        A += BK; // move right a block
+        B += BK * N; // move down a block
 
         // Use smem values to compute the rolling dot product.
-        for (int dot_idx = 0; dot_idx < BLOCKSIZE; dot_idx++) {
-            thread_sum += smem_A[thread_row_idx * BLOCKSIZE + dot_idx] * smem_B[dot_idx * BLOCKSIZE + thread_col_idx];
+        for (int dot_idx = 0; dot_idx < BK; dot_idx++) {
+            float b_val = smem_B[dot_idx * BN + thread_col];
+    
+            // Now we loop through A, reusing our b_val computing the rolling dot
+            // for each of the C values the thread is responsible for.
+            for (int register_idx = 0; register_idx < TM; register_idx++) {
+                thread_results[register_idx] += (
+                    smem_A[(thread_row * TM + register_idx) * BK + dot_idx] * b_val
+                );
+            }
         }
-        
+    
         // Ensure all the threads are done working.
         __syncthreads();
     }
 
-    // write the final output
-    if (row < M && col < N) {
-        C[thread_row_idx * N + thread_col_idx] = thread_sum;    
+    // Write to C.
+    for (int register_idx = 0; register_idx < TM; register_idx++) {
+        int c_row = thread_row * TM + register_idx;
+        if (c_rows * BM + c_row < M && col < N) {
+            C[c_row * N + thread_col] = thread_results[register_idx];
+        }
     }
 }
 
@@ -449,15 +468,19 @@ Kernel launch for matmul.
 @param K: The number of columns in A and rows in B.
 */
 __host__ void launch_fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K) {
-    // With 32 x 32 or 32 x 16, we are fully coalescing our warps in B and C! 
-    // We are going for 16 to keep the number of active warps high is our SM can only hold 1536 threads!
-    const int BLOCKSIZE = 32;
-    dim3 threads_per_block(BLOCKSIZE, BLOCKSIZE); 
+
+    // K-Tile, Registers (number of C values per thread), num of rows, num of cols in M and N per tile.
+    const int BK = 8;
+    const int TM = 8;
+    const int BM = 64;
+    const int BN = 64;
+
+    dim3 threads_per_block(BN, BM / TM); // 64 x 8
     dim3 blocks(
-        (N + BLOCKSIZE - 1) / BLOCKSIZE,
-        (M + BLOCKSIZE - 1) / BLOCKSIZE
+        (N + BN - 1) / BN,
+        (M + BM - 1) / BM
     );
-    fwd_matmul<BLOCKSIZE><<<blocks, threads_per_block>>>(A, B, C, M, N, K);
+    fwd_matmul<BM, BN, BK, TM><<<blocks, threads_per_block>>>(A, B, C, M, N, K);
 }
 
 /*
