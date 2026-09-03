@@ -22,6 +22,8 @@ v0.0.5 - Added tests for softmax.
 
 v0.0.6 - Testing the shared mem matmul and batched matmul.
 
+v0.0.7 - Testing the 1D blocktiling
+
 ### CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
@@ -53,6 +55,8 @@ v0.0.5 - Warp Coalescing for the MatMul and Batched MatMul.
 v0.0.6 - Smem MatMul and Batched MatMul
 
 v0.0.7 - Smem Batched MatMul layer 0 numbers
+
+v0.0.8 - 1D blocktiling
 
 ### Profiling Layer 1
 

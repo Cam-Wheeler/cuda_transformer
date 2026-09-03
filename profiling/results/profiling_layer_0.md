@@ -42,6 +42,18 @@ Torch:    15.37 TFLOPS
 
 ```
 
+- Matmul Profile (1D blocktiling):
+
+```python
+kernel:   matmul  (1024, 1024) @ (1024, 3072)
+CUDA:     1.262 ± 0.064 ms
+Torch:    0.419 ± 0.005 ms
+slowdown: 3.0x
+CUDA:     5.10 TFLOPS
+Torch:    15.38 TFLOPS
+
+```
+
 - Batched Matmul Profile:
 
 ```bash
@@ -75,6 +87,18 @@ Torch:    0.130 ± 0.004 ms
 slowdown: 2.5x
 CUDA:     3.28 TFLOPS
 Torch:    8.25 TFLOPS
+
+```
+
+- Batched Matmul Profile (1D blocktiling):
+
+```bash
+kernel:   batch_matmul  (64, 256, 128) @ (64, 128, 256)
+CUDA:     0.276 ± 0.007 ms
+Torch:    0.149 ± 0.006 ms
+slowdown: 1.8x
+CUDA:     3.90 TFLOPS
+Torch:    7.21 TFLOPS
 
 ```
 
