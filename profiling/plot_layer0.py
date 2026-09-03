@@ -25,9 +25,11 @@ LABELS = {
     "matmul": "Matmul",
     "matmul_coalesced": "Matmul\n(coalesced)",
     "matmul_smem": "Matmul\n(smem)",
+    "matmul_blocktiling": "Matmul\n(1D blocktiling)",
     "batch_matmul": "Batched\nmatmul",
     "batch_matmul_coalesced": "Batched\nmatmul\n(coalesced)",
     "batch_matmul_smem": "Batched\nmatmul\n(smem)",
+    "batch_matmul_blocktiling": "Batched\nmatmul\n(1D blocktiling)",
     "addition": "Add",
     "multi": "Mul",
     "softmax": "Softmax",
@@ -47,6 +49,13 @@ ERROR_COLOR = "#E8E8ED"
 BAR_EDGEWIDTH = 1.5
 GROUPED_BAR_WIDTH = 0.22
 SLOWDOWN_BAR_WIDTH = 0.4
+FIG_HEIGHT = 5.2
+FIG_WIDTH_PER_BAR = 1.35
+FIG_MIN_WIDTH = 12.0
+
+
+def _single_panel_width(n_items: int) -> float:
+    return max(FIG_MIN_WIDTH, n_items * FIG_WIDTH_PER_BAR)
 
 
 def load_rows():
@@ -108,7 +117,7 @@ def plot_latency(rows):
     x = np.arange(len(names))
     width = GROUPED_BAR_WIDTH
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.2))
+    fig, ax = plt.subplots(figsize=(_single_panel_width(len(names)), FIG_HEIGHT))
     ax.bar(
         x - width / 2,
         cuda_ms,
@@ -138,7 +147,7 @@ def plot_latency(rows):
     ax.set_yscale("log")
     ax.set_ylabel("Latency (ms, log)")
     ax.set_xticks(x)
-    ax.set_xticklabels(names)
+    ax.set_xticklabels(names, fontsize=9)
     ax.set_title("CUDA Kernel vs Torch Kernel Latency")
     ax.legend(frameon=False)
     ax.yaxis.grid(True, which="both", linestyle="--", alpha=0.35, zorder=0)
@@ -172,7 +181,7 @@ def plot_slowdown(rows):
     colors = [BEST_COLOR if i in best_idxs else CUDA_COLOR for i in range(len(rows))]
     edges = [BEST_EDGE if i in best_idxs else CUDA_EDGE for i in range(len(rows))]
 
-    fig, ax = plt.subplots(figsize=(10.5, 5.2))
+    fig, ax = plt.subplots(figsize=(_single_panel_width(len(names)), FIG_HEIGHT))
     bars = ax.bar(
         x,
         slowdown,
@@ -185,7 +194,7 @@ def plot_slowdown(rows):
     ax.axhline(1.0, color=TORCH_COLOR, linestyle="--", linewidth=1.4)
     ax.set_ylabel("Slowdown (CUDA ms / Torch ms)")
     ax.set_xticks(x)
-    ax.set_xticklabels(names)
+    ax.set_xticklabels(names, fontsize=9)
     ax.set_title("CUDA Kernel vs Torch Kernel Slowdown")
     ax.legend(
         handles=[
@@ -227,7 +236,12 @@ def plot_throughput(rows):
     gemm = [r for r in rows if r["metric"] == "TFLOPS"]
     bw = [r for r in rows if r["metric"] == "GB/s"]
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.0))
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(_single_panel_width(len(gemm) + len(bw)), FIG_HEIGHT),
+        gridspec_kw={"width_ratios": [len(gemm), max(len(bw), 1)]},
+    )
     width = GROUPED_BAR_WIDTH
 
     def _grouped(ax, subset, ylabel, title):
@@ -256,7 +270,7 @@ def plot_throughput(rows):
             zorder=3,
         )
         ax.set_xticks(x)
-        ax.set_xticklabels(names)
+        ax.set_xticklabels(names, fontsize=9)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.yaxis.grid(True, linestyle="--", alpha=0.35, zorder=0)
