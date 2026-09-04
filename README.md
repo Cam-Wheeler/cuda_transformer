@@ -10,7 +10,7 @@ Deeper write-ups will live in blogs. This README is just where things stand toda
 
 ## Training so far
 
-PyTorch backend, DDP on A100s, ~60k steps, ~300M tokens. Train and val loss both fall from ~12 to about **1.5–1.7**.
+PyTorch backend, DDP on 4 A100s, ~60k steps, ~300M tokens. Train and val loss both fall from ~12 to about **1.5–1.7**.
 
 ![Train loss](figures/train_loss.png)
 
