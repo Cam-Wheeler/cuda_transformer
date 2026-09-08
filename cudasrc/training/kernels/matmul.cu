@@ -78,7 +78,7 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
         // Load in a tile of A into smem.
         for (int load_offset = 0; load_offset < BM; load_offset += stride_a) {
             int a_row = smem_row_a + load_offset;
-            int a_k   = t_k_idx + smem_col_a;
+            int a_k = t_k_idx + smem_col_a;
             smem_A[a_row * BK + smem_col_a] =
                 (c_rows * BM + a_row < M && a_k < K)
                     ? A[a_row * K + smem_col_a]
@@ -88,7 +88,7 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
         // Load in a tile of B into smem.
         for (int load_offset = 0; load_offset < BK; load_offset += stride_b) {
             int b_row = smem_row_b + load_offset;
-            int b_k   = t_k_idx + b_row;
+            int b_k = t_k_idx + b_row;
             smem_B[b_row * BN + smem_col_b] =
                 (b_k < K && c_cols * BN + smem_col_b < N)
                     ? B[b_row * N + smem_col_b]
@@ -197,7 +197,7 @@ __global__ void bwd_matmul_a(const float* grad_out, const float* B, float* grad_
         // Load in a tile of grad_out into smem.
         for (int load_offset = 0; load_offset < BM; load_offset += stride_grad_out) {
             int grad_out_row = smem_row_grad_out + load_offset;
-            int grad_out_n   = t_n_idx + smem_col_grad_out;
+            int grad_out_n = t_n_idx + smem_col_grad_out;
             smem_grad_out[grad_out_row * BK + smem_col_grad_out] =
                 (grad_a_rows * BM + grad_out_row < M && grad_out_n < N)
                     ? grad_out[grad_out_row * N + smem_col_grad_out]
@@ -207,7 +207,7 @@ __global__ void bwd_matmul_a(const float* grad_out, const float* B, float* grad_
         // Load in a tile of B into smem (store as B^T so layout matches the compute).
         for (int load_offset = 0; load_offset < BK; load_offset += stride_bt) {
             int bt_row = smem_row_bt + load_offset;
-            int b_n    = t_n_idx + bt_row;
+            int b_n = t_n_idx + bt_row;
             smem_BT[bt_row * BN + smem_col_bt] =
                 (b_n < N && grad_a_cols * BN + smem_col_bt < K)
                     ? B[smem_col_bt * N + bt_row]
@@ -316,7 +316,7 @@ __global__ void bwd_matmul_b(const float* grad_out, const float* A, float* grad_
         // Load in a tile of A into smem (store as A^T so layout matches the compute).
         for (int load_offset = 0; load_offset < BM; load_offset += stride_at) {
             int at_row = smem_row_at + load_offset;
-            int a_m    = t_m_idx + smem_col_at;
+            int a_m = t_m_idx + smem_col_at;
             smem_AT[at_row * BK + smem_col_at] =
                 (grad_b_rows * BM + at_row < K && a_m < M)
                     ? A[smem_col_at * K + at_row]
@@ -326,7 +326,7 @@ __global__ void bwd_matmul_b(const float* grad_out, const float* A, float* grad_
         // Load in a tile of grad_out into smem.
         for (int load_offset = 0; load_offset < BK; load_offset += stride_grad_out) {
             int grad_out_row = smem_row_grad_out + load_offset;
-            int grad_out_m   = t_m_idx + grad_out_row;
+            int grad_out_m = t_m_idx + grad_out_row;
             smem_grad_out[grad_out_row * BN + smem_col_grad_out] =
                 (grad_out_m < M && grad_b_cols * BN + smem_col_grad_out < N)
                     ? grad_out[grad_out_row * N + smem_col_grad_out]
@@ -441,7 +441,7 @@ __global__ void fwd_batched_matmul(
         // Load in a tile of A into smem.
         for (int load_offset = 0; load_offset < BM; load_offset += stride_a) {
             int a_row = smem_row_a + load_offset;
-            int a_k   = t_k_idx + smem_col_a;
+            int a_k = t_k_idx + smem_col_a;
             smem_A[a_row * BK + smem_col_a] =
                 (c_rows * BM + a_row < M && a_k < K)
                     ? A[a_row * K + smem_col_a]
@@ -451,7 +451,7 @@ __global__ void fwd_batched_matmul(
         // Load in a tile of B into smem.
         for (int load_offset = 0; load_offset < BK; load_offset += stride_b) {
             int b_row = smem_row_b + load_offset;
-            int b_k   = t_k_idx + b_row;
+            int b_k = t_k_idx + b_row;
             smem_B[b_row * BN + smem_col_b] =
                 (b_k < K && c_cols * BN + smem_col_b < N)
                     ? B[b_row * N + smem_col_b]
@@ -565,7 +565,7 @@ __global__ void bwd_batched_matmul_a(
         // Load in a tile of grad_out into smem.
         for (int load_offset = 0; load_offset < BM; load_offset += stride_grad_out) {
             int grad_out_row = smem_row_grad_out + load_offset;
-            int grad_out_n   = t_n_idx + smem_col_grad_out;
+            int grad_out_n = t_n_idx + smem_col_grad_out;
             smem_grad_out[grad_out_row * BK + smem_col_grad_out] =
                 (grad_a_rows * BM + grad_out_row < M && grad_out_n < N)
                     ? grad_out[grad_out_row * N + smem_col_grad_out]
@@ -575,7 +575,7 @@ __global__ void bwd_batched_matmul_a(
         // Load in a tile of B into smem (store as B^T so layout matches the compute).
         for (int load_offset = 0; load_offset < BK; load_offset += stride_bt) {
             int bt_row = smem_row_bt + load_offset;
-            int b_n    = t_n_idx + bt_row;
+            int b_n = t_n_idx + bt_row;
             smem_BT[bt_row * BN + smem_col_bt] =
                 (b_n < N && grad_a_cols * BN + smem_col_bt < K)
                     ? B[smem_col_bt * N + bt_row]
@@ -689,7 +689,7 @@ __global__ void bwd_batched_matmul_b(
         // Load in a tile of A into smem (store as A^T so layout matches the compute).
         for (int load_offset = 0; load_offset < BM; load_offset += stride_at) {
             int at_row = smem_row_at + load_offset;
-            int a_m    = t_m_idx + smem_col_at;
+            int a_m = t_m_idx + smem_col_at;
             smem_AT[at_row * BK + smem_col_at] =
                 (grad_b_rows * BM + at_row < K && a_m < M)
                     ? A[smem_col_at * K + at_row]
@@ -699,7 +699,7 @@ __global__ void bwd_batched_matmul_b(
         // Load in a tile of grad_out into smem.
         for (int load_offset = 0; load_offset < BK; load_offset += stride_grad_out) {
             int grad_out_row = smem_row_grad_out + load_offset;
-            int grad_out_m   = t_m_idx + grad_out_row;
+            int grad_out_m = t_m_idx + grad_out_row;
             smem_grad_out[grad_out_row * BN + smem_col_grad_out] =
                 (grad_out_m < M && grad_b_cols * BN + smem_col_grad_out < N)
                     ? grad_out[grad_out_row * N + smem_col_grad_out]
@@ -835,12 +835,14 @@ __host__ void launch_fwd_batched_matmul(
     const float* A, const float* B, float* C, int batch_size, int M, int N, int K
 ) {
 
-    // K-Tile, Registers (number of C values per thread), num of rows, num of cols in M and N per tile.
-    const int BK = 8;
-    const int TM = 8;
-    const int TN = 8;
-    const int BM = 128;
-    const int BN = 128;
+    // Attention QK is skinny-K (K=head_dim=128) and 256x256 per batch.
+    // The FFN 128x128 / 8x8 tile under-occupies that shape; use a smaller
+    // MN tile, fewer accumulators, and a larger K-step.
+    const int BK = 32;
+    const int TM = 4;
+    const int TN = 4;
+    const int BM = 64;
+    const int BN = 64;
 
     dim3 threads_per_block((BM * BN) / (TM * TN));  // 256, 1D thread dim.
     dim3 blocks(
@@ -871,12 +873,12 @@ __host__ void launch_bwd_batched_matmul(
     float* grad_a, float* grad_b, int batch_size, int M, int N, int K
 ) {
 
-    // K-Tile, Registers (number of values per thread), num of rows, num of cols in M and N per tile.
-    const int BK = 8;
-    const int TM = 8;
-    const int TN = 8;
-    const int BM = 128;
-    const int BN = 128;
+    // Match the forward batched tile: 64x64 / 4x4 with BK=32.
+    const int BK = 32;
+    const int TM = 4;
+    const int TN = 4;
+    const int BM = 64;
+    const int BN = 64;
 
     dim3 threads_per_block((BM * BN) / (TM * TN));  // 256, 1D thread dim.
 

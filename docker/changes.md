@@ -62,6 +62,8 @@ v0.0.8 - 1D blocktiling
 
 v0.0.9 - 2D blocktiling
 
+v0.0.10 - 2D blocktiling shape alterations for batched matmul.
+
 ### Profiling Layer 1
 
 v0.0.1 - first draft of layer 1 of profiling pipeline.
