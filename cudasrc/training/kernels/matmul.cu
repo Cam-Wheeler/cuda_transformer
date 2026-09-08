@@ -22,7 +22,7 @@ Y = A @ B:
 @param N: The number of cols in B and C
 @param K: The number of columns in A and rows in B.
 */
-template <const int BM, const int BN, const int BK, const int TM>
+template <const int BM, const int BN, const int BK, const int TM, const int TN>
 __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int N, int K) {
 
     // Set the output tile that we need to compute for! 
@@ -43,10 +43,10 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
     const int thread_col = threadIdx.x;
 
     // Indexes for the load into smem.
-    const int row_a = threadIdx.x;
-    const int col_a = threadIdx.y;
-    const int row_b = threadIdx.y;
-    const int col_b = threadIdx.x;
+    const int row_a = threadIdx.x / BK;
+    const int col_a = threadIdx.x % BK;
+    const int row_b = threadIdx.x / BN;
+    const int col_b = threadIdx.x % BN;
 
     // Global index (can be OOB) from the start.
     int row = c_rows * BM + row_a;
