@@ -24,6 +24,8 @@ v0.0.6 - Testing the shared mem matmul and batched matmul.
 
 v0.0.7 - Testing the 1D blocktiling
 
+v0.0.8 - Testing the 2D blocktiling.
+
 ### CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
@@ -57,6 +59,10 @@ v0.0.6 - Smem MatMul and Batched MatMul
 v0.0.7 - Smem Batched MatMul layer 0 numbers
 
 v0.0.8 - 1D blocktiling
+
+v0.0.9 - 2D blocktiling
+
+v0.0.10 - 2D blocktiling shape alterations for batched matmul.
 
 ### Profiling Layer 1
 

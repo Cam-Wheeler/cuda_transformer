@@ -20,15 +20,15 @@ PyTorch backend, DDP on 4 A100s, ~60k steps, ~300M tokens. Train and val loss bo
 
 The kernels I have wired in (add, mul, SiLU, matmul, batched matmul, RMSNorm, softmax) match PyTorch numerically. They are still slower.
 
-On GEMM I have gone naive → coalesced loads → shared-memory tiling → 1D blocktiling. Current best vs PyTorch, timed with CUDA events on the same shapes as the mini model:
+On GEMM I have gone naive → coalesced loads → shared-memory tiling → 1D blocktiling → 2D blocktiling. Batched matmul uses a smaller QK-specific tile (`BM=BN=64 TM=TN=4 BK=32`) instead of the FFN 128×128 tile. Current best vs PyTorch, timed with CUDA events on the same shapes as the mini model:
 
 | Kernel | Slowdown |
 | --- | ---: |
+| Batched matmul (2D QK tile) | 1.1× |
 | RMSNorm | 1.6× |
 | Mul | 1.7× |
-| Batched matmul (1D blocktiling) | 1.8× |
+| Matmul (2D blocktiling) | 1.9× |
 | Add | 2.8× |
-| Matmul (1D blocktiling) | 3.0× |
 | Softmax | 3.1× |
 
 ![Latency](figures/layer0_latency.png)
@@ -42,4 +42,4 @@ Layer 1 (Nsight Systems) is started. Layer 2 (Nsight Compute) and the actual opt
 
 ## Things TODO
 
-This repo is not in its final form just yet! I am actively improving my GEMM kernels with 2D blocktiling and vectorised loading! I will then move onto the other kernels in order to squeeze as much performance as I can out of them.
+This repo is not in its final form just yet! I am actively improving my GEMM kernels with vectorised loading. I will then move onto the other kernels in order to squeeze as much performance as I can out of them.

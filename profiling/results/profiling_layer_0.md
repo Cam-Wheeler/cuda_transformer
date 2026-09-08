@@ -54,6 +54,18 @@ Torch:    15.38 TFLOPS
 
 ```
 
+- Matmul Profile (2D blocktiling):
+
+```bash
+kernel:   matmul  (1024, 1024) @ (1024, 3072)
+CUDA:     0.797 ± 0.006 ms
+Torch:    0.421 ± 0.005 ms
+slowdown: 1.9x
+CUDA:     8.08 TFLOPS
+Torch:    15.30 TFLOPS
+
+```
+
 - Batched Matmul Profile:
 
 ```bash
@@ -99,6 +111,32 @@ Torch:    0.149 ± 0.006 ms
 slowdown: 1.8x
 CUDA:     3.90 TFLOPS
 Torch:    7.21 TFLOPS
+
+```
+
+- Batched Matmul Profile (2D blocktiling):
+
+```bash
+kernel:   batch_matmul  (64, 256, 128) @ (64, 128, 256)
+CUDA:     0.269 ± 0.008 ms
+Torch:    0.148 ± 0.006 ms
+slowdown: 1.8x
+CUDA:     3.99 TFLOPS
+Torch:    7.26 TFLOPS
+
+```
+
+- Batched Matmul Profile (2D blocktiling, QK tile):
+
+Launch tile changed from `BM=128 BN=128 TM=8 TN=8 BK=8` to `BM=64 BN=64 TM=4 TN=4 BK=32`. Problem shape is unchanged.
+
+```bash
+kernel:   batch_matmul  (64, 256, 128) @ (64, 128, 256)
+CUDA:     0.160 ± 0.006 ms
+Torch:    0.148 ± 0.006 ms
+slowdown: 1.1x
+CUDA:     6.71 TFLOPS
+Torch:    7.23 TFLOPS
 
 ```
 
