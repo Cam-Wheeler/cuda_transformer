@@ -10,7 +10,9 @@ Matmul forward pass.
 
 Uses shared memory to reduce trips to HBM when performing matmul.
 Additional register blocking (2D) to enable further reuse of elements increasing
-FLOP per byte moved from HBM.
+FLOP per byte moved from HBM. 
+
+We also use vectorised loads to decrease the number of fetch instructions.
 
 Y = A @ B:
     A is M x K
@@ -43,8 +45,9 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
     B += c_cols * BN; // jump cols of B
     C += c_rows * BM * N + c_cols * BN; // where the tile sits in the output.
 
-    // Shared memory to load the tiles into
-    __shared__ float smem_A[BM * BK]; // BM rows, BK cols
+    // Shared memory to load the tiles into.
+    // smem_A is now stored transposed (BK x BM) so the inner loop can issue wide SMEM loads.
+    __shared__ float smem_A[BM * BK]; // BK rows, BM cols (transposed)
     __shared__ float smem_B[BK * BN]; // BK rows, BN cols
 
     // Thread positions within the block (maps to C).
@@ -52,11 +55,12 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
     const int thread_row = thread_idx / (BN / TN);
     const int thread_col = thread_idx % (BN / TN);
 
-    // Indexes for the load into smem (mapping to A and B).
-    const int smem_row_a = threadIdx.x / BK;
-    const int smem_col_a = threadIdx.x % BK;
-    const int smem_row_b = threadIdx.x / BN;
-    const int smem_col_b = threadIdx.x % BN;
+    // Indexes for the vectorised load into smem (mapping to A and B).
+    // col is a float4 slot along the contiguous dim, not a single float.
+    const int smem_row_a = threadIdx.x / (BK / 4);
+    const int smem_col_a = threadIdx.x % (BK / 4);
+    const int smem_row_b = threadIdx.x / (BN / 4);
+    const int smem_col_b = threadIdx.x % (BN / 4);
 
     // Outputs for this specific thread [TM * TN] values
     float thread_results[TM * TN];
@@ -66,33 +70,66 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
     float reg_m[TM]; // register array for A elements.
     float reg_n[TN]; // regist arrayt for B elements.
 
-    // Stride for loading into smem (each thread is now loading several values).
+    // Stride for loading into smem (each thread is now loading a float4).
     const int num_threads = (BM * BN) / (TM * TN);
-    const int stride_a = num_threads / BK; // Stride for loading in A.
-    const int stride_b = num_threads / BN; // Stride for loading in B.
+    const int stride_a = num_threads / (BK / 4); // Stride for loading in A.
+    const int stride_b = num_threads / (BN / 4); // Stride for loading in B.
 
     // Now we start iterating through K in tile steps computing the total as we go.
     for (int t_k_idx = 0; t_k_idx < K; t_k_idx += BK) {
 
 
-        // Load in a tile of A into smem.
+        // Load in a tile of A into smem (vectorised along K, store transposed).
         for (int load_offset = 0; load_offset < BM; load_offset += stride_a) {
             int a_row = smem_row_a + load_offset;
-            int a_k = t_k_idx + smem_col_a;
-            smem_A[a_row * BK + smem_col_a] =
-                (c_rows * BM + a_row < M && a_k < K)
-                    ? A[a_row * K + smem_col_a]
-                    : 0.f;
+            int a_k = t_k_idx + smem_col_a * 4;
+            bool can_vectorize_a =
+                (c_rows * BM + a_row < M) &&
+                (a_k + 4 <= K) &&
+                ((a_row * K + smem_col_a * 4) % 4 == 0);
+            if (can_vectorize_a) {
+                float4 tmp = reinterpret_cast<const float4*>(
+                    &A[a_row * K + smem_col_a * 4]
+                )[0];
+                smem_A[(smem_col_a * 4 + 0) * BM + a_row] = tmp.x;
+                smem_A[(smem_col_a * 4 + 1) * BM + a_row] = tmp.y;
+                smem_A[(smem_col_a * 4 + 2) * BM + a_row] = tmp.z;
+                smem_A[(smem_col_a * 4 + 3) * BM + a_row] = tmp.w;
+            } else {
+                for (int v = 0; v < 4; ++v) {
+                    int a_k_v = a_k + v;
+                    smem_A[(smem_col_a * 4 + v) * BM + a_row] =
+                        (c_rows * BM + a_row < M && a_k_v < K)
+                            ? A[a_row * K + smem_col_a * 4 + v]
+                            : 0.f;
+                }
+            }
         }
-
-        // Load in a tile of B into smem.
+        // Load in a tile of B into smem (vectorised along N).
         for (int load_offset = 0; load_offset < BK; load_offset += stride_b) {
             int b_row = smem_row_b + load_offset;
             int b_k = t_k_idx + b_row;
-            smem_B[b_row * BN + smem_col_b] =
-                (b_k < K && c_cols * BN + smem_col_b < N)
-                    ? B[b_row * N + smem_col_b]
-                    : 0.f;
+            int b_n = c_cols * BN + smem_col_b * 4;
+            bool can_vectorize_b =
+                (b_k < K) &&
+                (b_n + 4 <= N) &&
+                ((b_row * N + smem_col_b * 4) % 4 == 0);
+            if (can_vectorize_b) {
+                reinterpret_cast<float4*>(
+                    &smem_B[b_row * BN + smem_col_b * 4]
+                )[0] =
+                    reinterpret_cast<const float4*>(
+                        &B[b_row * N + smem_col_b * 4]
+                    )[0];
+            } else {
+                for (int v = 0; v < 4; ++v) {
+                    int b_n_v = b_n + v;
+                    smem_B[b_row * BN + smem_col_b * 4 + v] =
+                        (b_k < K && b_n_v < N)
+                            ? B[b_row * N + smem_col_b * 4 + v]
+                            : 0.f;
+                }
+            }
         }
 
         // Ensure all threads are done loading
@@ -103,10 +140,10 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
         B += BK * N; // move down a block
 
         // Use smem values to compute the rolling dot product.
-        // Registers now hold a value from A and B, not just a single B value.
+        // smem_A is K-major so reg_m walks a contiguous row.
         for (int dot_idx = 0; dot_idx < BK; ++dot_idx) {
             for (int i = 0; i < TM; ++i) {
-                reg_m[i] = smem_A[(thread_row * TM + i) * BK + dot_idx];
+                reg_m[i] = smem_A[dot_idx * BM + thread_row * TM + i];
             }
             for (int j = 0; j < TN; ++j) {
                 reg_n[j] = smem_B[dot_idx * BN + thread_col * TN + j];
@@ -122,13 +159,30 @@ __global__ void fwd_matmul(const float* A, const float* B, float* C, int M, int 
         __syncthreads();
     }
 
-    // Write to C.
+    // Write to C (vectorised along N when the float4 is in-bounds).
     for (int m = 0; m < TM; ++m) {
-        for (int n = 0; n < TN; ++n) {
-            int c_row = thread_row * TM + m;
+        int c_row = thread_row * TM + m;
+        bool row_ok = (c_rows * BM + c_row < M);
+        for (int n = 0; n < TN; n += 4) {
             int c_col = thread_col * TN + n;
-            if (c_rows * BM + c_row < M && c_cols * BN + c_col < N) {
-                C[c_row * N + c_col] = thread_results[m * TN + n];
+            bool can_vectorize_c =
+                row_ok &&
+                (c_cols * BN + c_col + 4 <= N) &&
+                ((c_row * N + c_col) % 4 == 0);
+            if (can_vectorize_c) {
+                float4 tmp;
+                tmp.x = thread_results[m * TN + n + 0];
+                tmp.y = thread_results[m * TN + n + 1];
+                tmp.z = thread_results[m * TN + n + 2];
+                tmp.w = thread_results[m * TN + n + 3];
+                reinterpret_cast<float4*>(&C[c_row * N + c_col])[0] = tmp;
+            } else {
+                for (int v = 0; v < 4; ++v) {
+                    int c_col_v = c_col + v;
+                    if (row_ok && c_cols * BN + c_col_v < N) {
+                        C[c_row * N + c_col_v] = thread_results[m * TN + n + v];
+                    }
+                }
             }
         }
     }
