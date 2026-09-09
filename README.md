@@ -18,24 +18,41 @@ PyTorch backend, DDP on 4 A100s, ~60k steps, ~300M tokens. Train and val loss bo
 
 ## Kernels so far
 
-The kernels I have wired in (add, mul, SiLU, matmul, batched matmul, RMSNorm, softmax) match PyTorch numerically. They are still slower.
+The kernels I have wired in (add, mul, SiLU, matmul, batched matmul, RMSNorm, softmax) match PyTorch numerically. They are still slower than PyTorch. Layer 0 numbers below are CUDA events vs the PyTorch sibling, on the mini-model shapes.
 
-On GEMM I have gone naive → coalesced loads → shared-memory tiling → 1D blocktiling → 2D blocktiling → vectorised loads. Batched matmul uses a smaller QK-specific tile (`BM=BN=64 TM=TN=4 BK=32`) instead of the FFN 128×128 tile. Current best vs PyTorch, timed with CUDA events on the same shapes as the mini model:
+On GEMM I have gone naive → coalesced loads → shared-memory tiling → 1D blocktiling → 2D blocktiling → vectorised loads. Batched matmul uses a smaller QK-specific tile (`BM=BN=64 TM=TN=4 BK=32`) instead of the FFN 128×128 tile.
+
+### Matmul
+
+FFN `(1024, 1024) @ (1024, 3072)` and attention QK `(64, 256, 128) @ (64, 128, 256)`.
 
 | Kernel | Slowdown |
 | --- | ---: |
 | Batched matmul (vectorised, QK tile) | 1.1× |
+| Matmul (vectorised, BK=16) | 1.6× |
+
+![Matmul latency](figures/layer0_matmul_latency.png)
+
+![Matmul slowdown](figures/layer0_matmul_slowdown.png)
+
+![Matmul throughput](figures/layer0_matmul_throughput.png)
+
+### Other kernels
+
+Add, mul, softmax, and RMSNorm. These are bandwidth-bound, so throughput is GB/s rather than TFLOPS.
+
+| Kernel | Slowdown |
+| --- | ---: |
 | RMSNorm | 1.6× |
 | Mul | 1.7× |
-| Matmul (vectorised, BK=16) | 1.6× |
 | Add | 2.8× |
 | Softmax | 3.1× |
 
-![Latency](figures/layer0_latency.png)
+![Other kernel latency](figures/layer0_other_latency.png)
 
-![Slowdown](figures/layer0_slowdown.png)
+![Other kernel slowdown](figures/layer0_other_slowdown.png)
 
-![Throughput](figures/layer0_throughput.png)
+![Other kernel throughput](figures/layer0_other_throughput.png)
 
 Layer 1 (Nsight Systems) is started. Layer 2 (Nsight Compute) and the actual optimisation write-ups will go in my blogs walking through everything in a deeper detail.
 
