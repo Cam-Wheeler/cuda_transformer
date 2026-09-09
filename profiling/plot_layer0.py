@@ -27,12 +27,15 @@ LABELS = {
     "matmul_smem": "Matmul\n(smem)",
     "matmul_blocktiling": "Matmul\n(1D blocktiling)",
     "matmul_blocktiling_2d": "Matmul\n(2D blocktiling)",
+    "matmul_vectorize": "Matmul\n(vectorised)",
+    "matmul_vectorize_bk16": "Matmul\n(vectorised, BK=16)",
     "batch_matmul": "Batched\nmatmul",
     "batch_matmul_coalesced": "Batched\nmatmul\n(coalesced)",
     "batch_matmul_smem": "Batched\nmatmul\n(smem)",
     "batch_matmul_blocktiling": "Batched\nmatmul\n(1D blocktiling)",
     "batch_matmul_blocktiling_2d": "Batched\nmatmul\n(2D blocktiling)",
     "batch_matmul_blocktiling_2d_qk": "Batched\nmatmul\n(2D QK tile)",
+    "batch_matmul_vectorize": "Batched\nmatmul\n(vectorised)",
     "addition": "Add",
     "multi": "Mul",
     "softmax": "Softmax",
@@ -80,7 +83,7 @@ def _best_indices(rows):
     for i, row in enumerate(rows):
         family = _kernel_family(row["kernel"])
         slowdown = float(row["slowdown"])
-        if family not in best or slowdown < best[family][1]:
+        if family not in best or slowdown <= best[family][1]:
             best[family] = (i, slowdown)
     return {i for i, _ in best.values()}
 

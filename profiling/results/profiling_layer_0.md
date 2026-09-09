@@ -66,6 +66,32 @@ Torch:    15.30 TFLOPS
 
 ```
 
+- Matmul Profile (vectorised loads):
+
+```bash
+kernel:   matmul  (1024, 1024) @ (1024, 3072)
+CUDA:     0.703 ± 0.029 ms
+Torch:    0.425 ± 0.018 ms
+slowdown: 1.7x
+CUDA:     9.16 TFLOPS
+Torch:    15.14 TFLOPS
+
+```
+
+- Matmul Profile (vectorised loads, BK=16):
+
+Launch tile changed from `BM=128 BN=128 TM=8 TN=8 BK=8` to `BM=128 BN=128 TM=8 TN=8 BK=16`. Problem shape is unchanged.
+
+```bash
+kernel:   matmul (BK @ 16) (1024, 1024) @ (1024, 3072)
+CUDA:     0.686 ± 0.070 ms
+Torch:    0.432 ± 0.012 ms
+slowdown: 1.6x
+CUDA:     9.39 TFLOPS
+Torch:    14.92 TFLOPS
+
+```
+
 - Batched Matmul Profile:
 
 ```bash
@@ -137,6 +163,18 @@ Torch:    0.148 ± 0.006 ms
 slowdown: 1.1x
 CUDA:     6.71 TFLOPS
 Torch:    7.23 TFLOPS
+
+```
+
+- Batched Matmul Profile (vectorised loads, QK tile):
+
+```bash
+kernel:   batch_matmul  (64, 256, 128) @ (64, 128, 256)
+CUDA:     0.159 ± 0.007 ms
+Torch:    0.150 ± 0.008 ms
+slowdown: 1.1x
+CUDA:     6.77 TFLOPS
+Torch:    7.17 TFLOPS
 
 ```
 
