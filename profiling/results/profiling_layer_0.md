@@ -202,6 +202,30 @@ Torch:    836.92 GB/s
 
 ```
 
+- Elementwise Add Profile (vectorised loads):
+
+```python
+kernel:   addition  (4, 256, 1024) + (4, 256, 1024)
+CUDA:     0.085 ± 0.013 ms
+Torch:    0.034 ± 0.008 ms
+slowdown: 2.5x
+CUDA:     147.50 GB/s
+Torch:    366.33 GB/s
+
+```
+
+- Elementwise Multi Profile (vectorised loads):
+
+```python
+kernel:   multi  (4, 256, 3072) * (4, 256, 3072)
+CUDA:     0.075 ± 0.012 ms
+Torch:    0.044 ± 0.007 ms
+slowdown: 1.7x
+CUDA:     506.07 GB/s
+Torch:    849.15 GB/s
+
+```
+
 - Softmax Profile:
 
 ```python

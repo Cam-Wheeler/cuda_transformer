@@ -28,6 +28,8 @@ v0.0.8 - Testing the 2D blocktiling.
 
 v0.0.9 - Testing the transposed smem and vectorised loads.
 
+v0.0.10 - Testing vectorised loads on elementwise kernels.
+
 ### CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
@@ -69,6 +71,8 @@ v0.0.10 - 2D blocktiling shape alterations for batched matmul.
 v0.0.11 - smem transpose and vectorised loads.
 
 v0.0.12 - Different BK on the matmul.
+
+v0.0.13 - Elementwise vectorised loads. 
 
 ### Profiling Layer 1
 

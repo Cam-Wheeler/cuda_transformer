@@ -41,11 +41,15 @@ FFN `(1024, 1024) @ (1024, 3072)` and attention QK `(64, 256, 128) @ (64, 128, 2
 
 Add, mul, softmax, and RMSNorm. These are bandwidth-bound, so throughput is GB/s rather than TFLOPS.
 
+Vectorised `float4` loads move four elements per thread. Layer 0 did not move (the 2.8× → 2.5× on add is within noise). Nsight Systems shows add and mul are launch-bound at the mini-model shape, so we are moving on from them for now; they will mainly benefit from kernel fusion.
+
 | Kernel | Slowdown |
 | --- | ---: |
 | RMSNorm | 1.6× |
 | Mul | 1.7× |
+| Mul (vectorised) | 1.7× |
 | Add | 2.8× |
+| Add (vectorised) | 2.5× |
 | Softmax | 3.1× |
 
 ![Other kernel latency](figures/layer0_other_latency.png)

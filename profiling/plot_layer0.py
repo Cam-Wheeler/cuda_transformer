@@ -41,7 +41,9 @@ LABELS = {
     "batch_matmul_blocktiling_2d_qk": "Batched\nmatmul\n(2D QK tile)",
     "batch_matmul_vectorize": "Batched\nmatmul\n(vectorised)",
     "addition": "Add",
+    "addition_vectorize": "Add\n(vectorised)",
     "multi": "Mul",
+    "multi_vectorize": "Mul\n(vectorised)",
     "softmax": "Softmax",
     "rmsnorm": "RMSNorm",
 }
@@ -103,6 +105,10 @@ def _kernel_family(name):
         return "batch_matmul"
     if name.startswith("matmul"):
         return "matmul"
+    if name.startswith("addition"):
+        return "addition"
+    if name.startswith("multi"):
+        return "multi"
     return name
 
 
