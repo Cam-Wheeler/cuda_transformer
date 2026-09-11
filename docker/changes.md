@@ -30,7 +30,7 @@ v0.0.9 - Testing the transposed smem and vectorised loads.
 
 v0.0.10 - Testing vectorised loads on elementwise kernels.
 
-v0.0.11 - Testing online softmax
+v0.0.11 - Testing online softmax (new test for casual mask added).
 
 ### CUDA Smoke Tests
 

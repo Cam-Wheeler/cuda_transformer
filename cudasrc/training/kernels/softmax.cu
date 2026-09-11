@@ -43,14 +43,16 @@ __global__ void fwd_softmax(const float* x, float* out, int batch_size, int seq_
         float local_max = -INFINITY;
         float local_norm = 0.f;
 
+        // Causal masks fill future logits with -inf. exp(-inf - -inf) is NaN, so
+        // we clamp the exponent; CUDA fmaxf(NaN, c) returns c. -inf then adds ~0.
+        constexpr float kNegClamp = -80.f;
         for (int i = thread_idx; i < n_embed; i += blockDim.x) {
             int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
             float x_val = x[idx];
-            if (x_val > local_max) {
-                local_norm *= expf(local_max - x_val);
-                local_max = x_val;
-            }
-            local_norm += expf(x_val - local_max);
+            float new_max = fmaxf(local_max, x_val);
+            local_norm = local_norm * expf(fmaxf(local_max - new_max, kNegClamp)) 
+                                    + expf(fmaxf(x_val - new_max, kNegClamp));
+            local_max = new_max;
         }
 
         // Write to smem for block level reduction.
@@ -70,7 +72,7 @@ __global__ void fwd_softmax(const float* x, float* out, int batch_size, int seq_
         __syncthreads();
 
         // Align each thread's running sum onto the row max, then tree reduce.
-        smem[thread_idx] = local_norm * expf(local_max - global_row_max);
+        smem[thread_idx] = local_norm * expf(fmaxf(local_max - global_row_max, kNegClamp));
         __syncthreads();
 
         for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {

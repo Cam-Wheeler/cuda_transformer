@@ -51,3 +51,32 @@ class TestSoftmax:
         F.softmax(x_torch, dim=-1).backward(grad_out)
 
         torch.testing.assert_close(x_cuda.grad, x_torch.grad)
+
+    def test_softmax_forward_causal_mask(self, device, softmax_op):
+        """Causal -inf must not NaN the row (attention scores)."""
+        seq = 16
+        x = torch.randn(2, seq, seq, dtype=torch.float32, device=device)
+        mask = torch.triu(torch.ones(seq, seq, dtype=torch.bool, device=device), diagonal=1)
+        x = x.masked_fill(mask, float("-inf"))
+
+        out_cuda = softmax_op(x)
+        out_torch = F.softmax(x, dim=-1)
+
+        assert torch.isfinite(out_cuda).all()
+        torch.testing.assert_close(out_cuda, out_torch)
+
+    def test_softmax_bwd_causal_mask(self, device, softmax_op):
+        """Backward through causal -inf rows vs torch."""
+        seq = 16
+        x = torch.randn(2, seq, seq, dtype=torch.float32, device=device)
+        mask = torch.triu(torch.ones(seq, seq, dtype=torch.bool, device=device), diagonal=1)
+        x = x.masked_fill(mask, float("-inf"))
+
+        x_cuda = x.detach().clone().requires_grad_(True)
+        x_torch = x.detach().clone().requires_grad_(True)
+        grad_out = torch.randn_like(x_cuda)
+
+        softmax_op(x_cuda).backward(grad_out)
+        F.softmax(x_torch, dim=-1).backward(grad_out)
+
+        torch.testing.assert_close(x_cuda.grad, x_torch.grad)
