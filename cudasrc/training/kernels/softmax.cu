@@ -53,7 +53,9 @@ __device__ __forceinline__ float block_reduce_max(float val, float* smem) {
         }
     }
     __syncthreads();
-    return smem[0];
+    float out = smem[0];
+    __syncthreads();
+    return out;
 }
 
 __device__ __forceinline__ float block_reduce_sum(float val, float* smem) {
@@ -75,7 +77,9 @@ __device__ __forceinline__ float block_reduce_sum(float val, float* smem) {
         }
     }
     __syncthreads();
-    return smem[0];
+    float out = smem[0];
+    __syncthreads();
+    return out;
 }
 
 }
