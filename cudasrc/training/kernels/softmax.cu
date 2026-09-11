@@ -6,9 +6,9 @@ We are computing the numerically stable softmax (online, 2-pass):
 2. Warp-shuffle reduce, then a tiny smem mailbox across warps.
 3. Second scan: write exp(x - max) / sum.
 
-Each block handles a single row. Forward launches one thread per float4
-(rounded up to a warp, capped at 256). Threads stride through the row.
-Shuffle helpers use blockDim.x so 32–256 threads all work.
+Each block handles a single row. Forward and backward launch one thread
+per float4 (rounded up to a warp, capped at 256). Threads stride through
+the row. Shuffle helpers use blockDim.x so 32–256 threads all work.
 */
 
 #include <cmath>
@@ -211,16 +211,56 @@ __global__ void bwd_softmax (
 
     if (b_idx < batch_size && seq_idx < seq_len) {
 
+        int row = b_idx * seq_len * n_embed + seq_idx * n_embed;
+        int n_float4s = n_embed / 4;
+        int tail = n_embed % 4;
+
+        const float4* probs_vec = reinterpret_cast<const float4*>(output_probs + row);
+        const float4* gout_vec = reinterpret_cast<const float4*>(grad_out + row);
+        float4* grad_vec = reinterpret_cast<float4*>(grad_x + row);
+
         float local_sum = 0.f;
-        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
-            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
-            local_sum += output_probs[idx] * grad_out[idx];
+        if ((row % 4) == 0) {
+            for (int i = thread_idx; i < n_float4s; i += blockDim.x) {
+                float4 probs = probs_vec[i];
+                float4 gout = gout_vec[i];
+                local_sum += probs.x * gout.x;
+                local_sum += probs.y * gout.y;
+                local_sum += probs.z * gout.z;
+                local_sum += probs.w * gout.w;
+            }
+            if (tail && thread_idx < tail) {
+                int idx = row + n_float4s * 4 + thread_idx;
+                local_sum += output_probs[idx] * grad_out[idx];
+            }
+        } else {
+            for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+                int idx = row + i;
+                local_sum += output_probs[idx] * grad_out[idx];
+            }
         }
+
         float global_row_sum = block_reduce_sum(local_sum, smem);
 
-        for (int i = thread_idx; i < n_embed; i += blockDim.x) {
-            int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
-            grad_x[idx] = output_probs[idx] * (grad_out[idx] - global_row_sum);
+        if ((row % 4) == 0) {
+            for (int i = thread_idx; i < n_float4s; i += blockDim.x) {
+                float4 probs = probs_vec[i];
+                float4 gout = gout_vec[i];
+                gout.x = probs.x * (gout.x - global_row_sum);
+                gout.y = probs.y * (gout.y - global_row_sum);
+                gout.z = probs.z * (gout.z - global_row_sum);
+                gout.w = probs.w * (gout.w - global_row_sum);
+                grad_vec[i] = gout;
+            }
+            if (tail && thread_idx < tail) {
+                int idx = row + n_float4s * 4 + thread_idx;
+                grad_x[idx] = output_probs[idx] * (grad_out[idx] - global_row_sum);
+            }
+        } else {
+            for (int i = thread_idx; i < n_embed; i += blockDim.x) {
+                int idx = row + i;
+                grad_x[idx] = output_probs[idx] * (grad_out[idx] - global_row_sum);
+            }
         }
     }
 }
@@ -274,7 +314,17 @@ __host__ void launch_bwd_softmax(
     float* grad_x, int batch_size, int seq_len, int n_embed
 ) {
     dim3 blocks(batch_size, seq_len); 
-    int threads_per_block = 256;
+    // One thread per float4, we round up to a warp so shuffle masks stay valid.
+    int n_float4s = n_embed / 4;
+    int threads_per_block = n_float4s > 0 ? n_float4s : n_embed;
+    threads_per_block = ((threads_per_block + 31) / 32) * 32;
+    if (threads_per_block < 32) {
+        threads_per_block = 32;
+    }
+    if (threads_per_block > 256) {
+        threads_per_block = 256;
+    }
+
     int nwarps = (threads_per_block + 31) / 32;
     size_t shared_mem = nwarps * sizeof(float);
     bwd_softmax<<<blocks, threads_per_block, shared_mem>>>(

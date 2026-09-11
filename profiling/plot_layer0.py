@@ -47,6 +47,7 @@ LABELS = {
     "softmax": "Softmax",
     "softmax_online": "Softmax\n(online)",
     "softmax_shuffle": "Softmax\n(shuffle)",
+    "softmax_vectorize": "Softmax\n(vectorised)",
     "rmsnorm": "RMSNorm",
 }
 

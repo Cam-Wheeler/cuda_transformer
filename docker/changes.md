@@ -34,6 +34,8 @@ v0.0.11 - Testing online softmax (new test for casual mask added).
 
 v0.0.12 - Testing shuffle reduction.
 
+v0.0.13 - Testing vec loads for softmax.
+
 ### CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
@@ -80,7 +82,9 @@ v0.0.13 - Elementwise vectorised loads.
 
 v0.0.14 - Online softmax
 
-v0.0.15 - Shuffle reduction.
+v0.0.15 - Shuffle reduction (softmax).
+
+v0.0.16 - Vec loading (softmax).
 
 ### Profiling Layer 1
 
