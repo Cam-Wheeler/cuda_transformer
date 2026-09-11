@@ -80,3 +80,10 @@ class TestSoftmax:
         F.softmax(x_torch, dim=-1).backward(grad_out)
 
         torch.testing.assert_close(x_cuda.grad, x_torch.grad)
+
+    def test_softmax_forward_tail(self, device, softmax_op):
+        """N % 4 != 0 hits the scalar tail and misaligned later rows."""
+        x = torch.randn(2, 4, 5, dtype=torch.float32, device=device)
+        out_cuda = softmax_op(x)
+        out_torch = F.softmax(x, dim=-1)
+        torch.testing.assert_close(out_cuda, out_torch)
