@@ -45,8 +45,6 @@ Vectorised `float4` loads move four elements per thread. Layer 0 did not move (t
 
 Online softmax (max and norm in one scan) did not move CUDA latency (0.127 ms → 0.130 ms, within noise). The 3.1× → 2.9× slowdown drop is only Torch running a bit slower in that job (0.040 ms → 0.044 ms), not a faster kernel.
 
-Warp shuffle on the reduces did move the kernel: 0.127 ms → 0.102 ms, 264 → 329 GB/s. Torch was ~0.043 ms (same as the online job), so 2.4× is a real ratio drop, not a Torch-only artefact. Next is vectorised loads.
-
 | Kernel | Slowdown |
 | --- | ---: |
 | RMSNorm | 1.6× |
