@@ -262,6 +262,18 @@ Torch:    780.28 GB/s
 
 ```
 
+- Softmax Profile (vectorised loads):
+
+```python
+kernel:   softmax  (64, 256, 256)
+CUDA:     0.069 ± 0.009 ms
+Torch:    0.040 ± 0.006 ms
+slowdown: 1.7x
+CUDA:     483.13 GB/s
+Torch:    841.16 GB/s
+
+```
+
 - RMSNorm Profile:
 
 ```python
