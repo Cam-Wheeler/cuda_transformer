@@ -181,7 +181,9 @@ __host__ void launch_fwd_softmax(
 
     dim3 blocks(batch_size, seq_len); // batch_size num of blocks along X and seq_len blocks along Y.
     int threads_per_block = 256;
-    size_t shared_mem = threads_per_block * sizeof(float);
+    // Mailbox is one float per warp, not per thread.
+    int nwarps = (threads_per_block + 31) / 32;
+    size_t shared_mem = nwarps * sizeof(float);
     fwd_softmax<<<blocks, threads_per_block, shared_mem>>>(
         x, out, batch_size, seq_len, n_embed
     );
@@ -203,7 +205,8 @@ __host__ void launch_bwd_softmax(
 ) {
     dim3 blocks(batch_size, seq_len); 
     int threads_per_block = 256;
-    size_t shared_mem = threads_per_block * sizeof(float);
+    int nwarps = (threads_per_block + 31) / 32;
+    size_t shared_mem = nwarps * sizeof(float);
     bwd_softmax<<<blocks, threads_per_block, shared_mem>>>(
         grad_out, output_probs, grad_x, batch_size, seq_len, n_embed
     );
