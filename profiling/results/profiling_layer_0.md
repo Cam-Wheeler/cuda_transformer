@@ -250,6 +250,18 @@ Torch:    760.99 GB/s
 
 ```
 
+- Softmax Profile (shuffle reduce):
+
+```python
+kernel:   softmax  (64, 256, 256)
+CUDA:     0.102 ± 0.016 ms
+Torch:    0.043 ± 0.012 ms
+slowdown: 2.4x
+CUDA:     329.13 GB/s
+Torch:    780.28 GB/s
+
+```
+
 - RMSNorm Profile:
 
 ```python

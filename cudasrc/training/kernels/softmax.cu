@@ -3,19 +3,86 @@ Softmax Kernel
 
 We are computing the numerically stable softmax (online, 2-pass):
 1. One scan: each thread keeps a running max and a running sum of exp.
-2. Block-reduce the max, then align and block-reduce the sums.
+2. Warp-shuffle reduce, then a tiny smem mailbox across warps.
 3. Second scan: write exp(x - max) / sum.
 
-Formula:
-    softmax(x[i]) = exp(x[i] - max) / sum(exp(x - max))
-    Where x is the entire vector, x[i] is an element in the vector and max is the
-    max value in the vector.
-
-Each block will handle a single row in the matrix!
+Each block handles a single row. Block size is independent of row length;
+threads stride through the row. Shuffle helpers use blockDim.x so 32–1024
+threads all work.
 */
 
 #include <cuda_runtime.h>
 #include <math.h>
+
+namespace {
+
+constexpr int kWarpSize = 32;
+
+__device__ __forceinline__ float warp_reduce_max(float val) {
+    for (int offset = kWarpSize / 2; offset > 0; offset /= 2) {
+        val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
+    }
+    return val;
+}
+
+__device__ __forceinline__ float warp_reduce_sum(float val) {
+    for (int offset = kWarpSize / 2; offset > 0; offset /= 2) {
+        val += __shfl_down_sync(0xffffffff, val, offset);
+    }
+    return val;
+}
+
+// Warp shuffle, then smem[nwarps] mailbox, then warp 0 shuffle.
+// Idle lanes in warp 0 hold identity so the mask stays 0xffffffff.
+__device__ __forceinline__ float block_reduce_max(float val, float* smem) {
+    val = warp_reduce_max(val);
+    const int lane = threadIdx.x % kWarpSize;
+    const int warp = threadIdx.x / kWarpSize;
+    const int nwarps = (blockDim.x + kWarpSize - 1) / kWarpSize;
+
+    if (lane == 0) {
+        smem[warp] = val;
+    }
+    __syncthreads();
+
+    if (warp == 0) {
+        val = (threadIdx.x < nwarps) ? smem[threadIdx.x] : -INFINITY;
+        val = warp_reduce_max(val);
+        if (lane == 0) {
+            smem[0] = val;
+        }
+    }
+    __syncthreads();
+    float out = smem[0];
+    __syncthreads();
+    return out;
+}
+
+__device__ __forceinline__ float block_reduce_sum(float val, float* smem) {
+    val = warp_reduce_sum(val);
+    const int lane = threadIdx.x % kWarpSize;
+    const int warp = threadIdx.x / kWarpSize;
+    const int nwarps = (blockDim.x + kWarpSize - 1) / kWarpSize;
+
+    if (lane == 0) {
+        smem[warp] = val;
+    }
+    __syncthreads();
+
+    if (warp == 0) {
+        val = (threadIdx.x < nwarps) ? smem[threadIdx.x] : 0.f;
+        val = warp_reduce_sum(val);
+        if (lane == 0) {
+            smem[0] = val;
+        }
+    }
+    __syncthreads();
+    float out = smem[0];
+    __syncthreads();
+    return out;
+}
+
+}
 
 /*
 Softmax forward kernel
@@ -33,13 +100,11 @@ __global__ void fwd_softmax(const float* x, float* out, int batch_size, int seq_
     int seq_idx = blockIdx.y;
     int thread_idx = threadIdx.x;
 
-    // Shared memory
     extern __shared__ float shared_mem[];
     float* smem = shared_mem;
 
     if (b_idx < batch_size && seq_idx < seq_len) {
 
-        // Get the local max for the thread
         float local_max = -INFINITY;
         float local_norm = 0.f;
 
@@ -50,42 +115,15 @@ __global__ void fwd_softmax(const float* x, float* out, int batch_size, int seq_
             int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
             float x_val = x[idx];
             float new_max = fmaxf(local_max, x_val);
-            local_norm = local_norm * expf(fmaxf(local_max - new_max, kNegClamp)) 
+            local_norm = local_norm * expf(fmaxf(local_max - new_max, kNegClamp))
                                     + expf(fmaxf(x_val - new_max, kNegClamp));
             local_max = new_max;
         }
 
-        // Write to smem for block level reduction.
-        smem[thread_idx] = local_max;
-        __syncthreads();
+        float global_row_max = block_reduce_max(local_max, smem);
+        float aligned = local_norm * expf(fmaxf(local_max - global_row_max, kNegClamp));
+        float global_row_sum = block_reduce_sum(aligned, smem);
 
-        // Tree reduce the max to find the actual max for the row
-        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-            if (thread_idx < stride) {
-                smem[thread_idx] = fmaxf(smem[thread_idx], smem[thread_idx + stride]);
-            }
-            __syncthreads();
-        }
-
-        // Copy the row max out of smem before we reuse the buffer for the sum.
-        float global_row_max = smem[0];
-        __syncthreads();
-
-        // Align each thread's running sum onto the row max, then tree reduce.
-        smem[thread_idx] = local_norm * expf(fmaxf(local_max - global_row_max, kNegClamp));
-        __syncthreads();
-
-        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-            if (thread_idx < stride) {
-                smem[thread_idx] += smem[thread_idx + stride];
-            }
-            __syncthreads();
-        }
-
-        // Grab the global sum for the row.
-        float global_row_sum = smem[0];
-
-        // Now that we have all we need, lets do the actual normalisation.
         for (int i = thread_idx; i < n_embed; i += blockDim.x) {
             int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
             out[idx] = expf(x[idx] - global_row_max) / global_row_sum;
@@ -122,18 +160,7 @@ __global__ void bwd_softmax (
             int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
             local_sum += output_probs[idx] * grad_out[idx];
         }
-        smem[thread_idx] = local_sum;
-        __syncthreads();
-
-        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-            if (thread_idx < stride) {
-                smem[thread_idx] += smem[thread_idx + stride];
-            }
-            __syncthreads();
-        }
-
-        float global_row_sum = smem[0];
-        __syncthreads();
+        float global_row_sum = block_reduce_sum(local_sum, smem);
 
         for (int i = thread_idx; i < n_embed; i += blockDim.x) {
             int idx = b_idx * seq_len * n_embed + seq_idx * n_embed + i;
@@ -158,7 +185,9 @@ __host__ void launch_fwd_softmax(
 
     dim3 blocks(batch_size, seq_len); // batch_size num of blocks along X and seq_len blocks along Y.
     int threads_per_block = 256;
-    size_t shared_mem = threads_per_block * sizeof(float);
+    // Mailbox is one float per warp, not per thread.
+    int nwarps = (threads_per_block + 31) / 32;
+    size_t shared_mem = nwarps * sizeof(float);
     fwd_softmax<<<blocks, threads_per_block, shared_mem>>>(
         x, out, batch_size, seq_len, n_embed
     );
@@ -180,7 +209,8 @@ __host__ void launch_bwd_softmax(
 ) {
     dim3 blocks(batch_size, seq_len); 
     int threads_per_block = 256;
-    size_t shared_mem = threads_per_block * sizeof(float);
+    int nwarps = (threads_per_block + 31) / 32;
+    size_t shared_mem = nwarps * sizeof(float);
     bwd_softmax<<<blocks, threads_per_block, shared_mem>>>(
         grad_out, output_probs, grad_x, batch_size, seq_len, n_embed
     );
