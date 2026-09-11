@@ -30,6 +30,8 @@ v0.0.9 - Testing the transposed smem and vectorised loads.
 
 v0.0.10 - Testing vectorised loads on elementwise kernels.
 
+v0.0.11 - Testing online softmax
+
 ### CUDA Smoke Tests
 
 v0.0.1 - First smoke test for elementwise addition and multiplication.
@@ -73,6 +75,8 @@ v0.0.11 - smem transpose and vectorised loads.
 v0.0.12 - Different BK on the matmul.
 
 v0.0.13 - Elementwise vectorised loads. 
+
+v0.0.14 - Online softmax
 
 ### Profiling Layer 1
 
