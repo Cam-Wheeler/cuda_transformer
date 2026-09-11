@@ -43,6 +43,8 @@ Add, mul, softmax, and RMSNorm. These are bandwidth-bound, so throughput is GB/s
 
 Vectorised `float4` loads move four elements per thread. Layer 0 did not move (the 2.8× → 2.5× on add is within noise). Nsight Systems shows add and mul are launch-bound at the mini-model shape, so we are moving on from them for now; they will mainly benefit from kernel fusion.
 
+Online softmax (max and norm in one scan) did not move CUDA latency (0.127 ms → 0.130 ms, within noise). The 3.1× → 2.9× slowdown drop is only Torch running a bit slower in that job (0.040 ms → 0.044 ms), not a faster kernel. Next is warp shuffle, hopefully that moves things a bit more.
+
 | Kernel | Slowdown |
 | --- | ---: |
 | RMSNorm | 1.6× |
@@ -51,6 +53,7 @@ Vectorised `float4` loads move four elements per thread. Layer 0 did not move (t
 | Add | 2.8× |
 | Add (vectorised) | 2.5× |
 | Softmax | 3.1× |
+| Softmax (online) | 2.9× (not faster due to optimisation)|
 
 ![Other kernel latency](figures/layer0_other_latency.png)
 

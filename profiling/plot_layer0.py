@@ -45,6 +45,7 @@ LABELS = {
     "multi": "Mul",
     "multi_vectorize": "Mul\n(vectorised)",
     "softmax": "Softmax",
+    "softmax_online": "Softmax\n(online)",
     "rmsnorm": "RMSNorm",
 }
 
@@ -109,6 +110,8 @@ def _kernel_family(name):
         return "addition"
     if name.startswith("multi"):
         return "multi"
+    if name.startswith("softmax"):
+        return "softmax"
     return name
 
 
